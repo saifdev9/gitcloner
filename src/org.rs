@@ -14,7 +14,7 @@ use crate::repo;
 const API: &str = "https://api.github.com";
 const PER_PAGE: usize = 100;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OrgRepo {
     /// `owner/name`, for display.
     pub full_name: String,
@@ -24,6 +24,18 @@ pub struct OrgRepo {
     pub private: bool,
     pub fork: bool,
     pub archived: bool,
+    pub language: String,
+    pub stars: u64,
+    pub forks: u64,
+    pub issues: u64,
+    /// What GitHub stores, in KiB — roughly what a full clone downloads.
+    pub size_kb: u64,
+    /// Last push, `YYYY-MM-DD`.
+    pub pushed: String,
+    pub branch: String,
+    /// SPDX id, e.g. `MIT`; empty when there is none or GitHub cannot tell.
+    pub license: String,
+    pub topics: Vec<String>,
 }
 
 /// Every repo of `name` the token can see: as an org first, then as a user.
@@ -139,6 +151,7 @@ fn parse_page(body: &str) -> Result<Vec<OrgRepo>, String> {
         .map(|r| {
             let s = |k: &str| r[k].as_str().unwrap_or("").to_string();
             let b = |k: &str| r[k].as_bool().unwrap_or(false);
+            let n = |k: &str| r[k].as_u64().unwrap_or(0);
             OrgRepo {
                 full_name: s("full_name"),
                 url: s("clone_url"),
@@ -146,6 +159,22 @@ fn parse_page(body: &str) -> Result<Vec<OrgRepo>, String> {
                 private: b("private"),
                 fork: b("fork"),
                 archived: b("archived"),
+                language: s("language"),
+                stars: n("stargazers_count"),
+                forks: n("forks_count"),
+                issues: n("open_issues_count"),
+                size_kb: n("size"),
+                pushed: s("pushed_at").chars().take(10).collect(),
+                branch: s("default_branch"),
+                license: r["license"]["spdx_id"]
+                    .as_str()
+                    .filter(|id| *id != "NOASSERTION")
+                    .unwrap_or("")
+                    .to_string(),
+                topics: r["topics"]
+                    .as_array()
+                    .map(|t| t.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default(),
             }
         })
         .collect())
@@ -159,15 +188,24 @@ mod tests {
     fn reads_a_github_listing() {
         let body = r#"[
             {"full_name": "acme/api", "clone_url": "https://github.com/acme/api.git",
-             "description": "the API", "private": true, "fork": false, "archived": false},
+             "description": "the API", "private": true, "fork": false, "archived": false,
+             "language": "Rust", "stargazers_count": 1204, "forks_count": 87,
+             "open_issues_count": 23, "size": 12700, "pushed_at": "2026-09-30T08:12:45Z",
+             "default_branch": "main", "license": {"spdx_id": "MIT"}, "topics": ["cli", "git"]},
             {"full_name": "acme/old", "clone_url": "https://github.com/acme/old.git",
-             "description": null, "private": false, "fork": true, "archived": true}
+             "description": null, "private": false, "fork": true, "archived": true,
+             "language": null, "license": {"spdx_id": "NOASSERTION"}}
         ]"#;
         let repos = parse_page(body).unwrap();
         assert_eq!(repos.len(), 2);
         assert_eq!(repos[0].url, "https://github.com/acme/api.git");
         assert!(repos[0].private && !repos[0].fork);
+        assert_eq!((repos[0].stars, repos[0].forks, repos[0].issues, repos[0].size_kb), (1204, 87, 23, 12700));
+        assert_eq!((repos[0].language.as_str(), repos[0].pushed.as_str()), ("Rust", "2026-09-30"));
+        assert_eq!((repos[0].license.as_str(), repos[0].branch.as_str()), ("MIT", "main"));
+        assert_eq!(repos[0].topics, ["cli", "git"]);
         assert_eq!(repos[1].description, "");
+        assert_eq!((repos[1].language.as_str(), repos[1].license.as_str()), ("", ""));
         assert!(repos[1].fork && repos[1].archived);
         assert!(parse_page(r#"{"message": "Not Found"}"#).is_err());
     }

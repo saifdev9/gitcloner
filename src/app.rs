@@ -241,6 +241,8 @@ pub struct JobView {
     pub pct: u16,
     pub phase: String,
     pub detail: String,
+    /// Latest `1.00 MiB | 2.00 MiB/s` from git; empty until data flows.
+    pub transfer: String,
     pub log: VecDeque<String>,
     pub handle: Handle,
     pub started: Option<Instant>,
@@ -256,6 +258,7 @@ impl JobView {
             pct: 0,
             phase: "queued".into(),
             detail: job.dest.display().to_string(),
+            transfer: String::new(),
             log: VecDeque::new(),
             handle: Handle::default(),
             started: None,
@@ -271,6 +274,7 @@ impl JobView {
             pct: 0,
             phase: "rejected".into(),
             detail: why,
+            transfer: String::new(),
             log: VecDeque::new(),
             handle: Handle::default(),
             started: None,
@@ -339,7 +343,12 @@ pub struct App {
     pub jobs: Vec<JobView>,
     pub sel: usize,
     pub modal: Option<Modal>,
+    /// Ticks since launch; every animation is a function of it.
     pub spinner: usize,
+    /// The overall percentage as drawn: chases `overall()` so the bar glides.
+    pub eased: f32,
+    /// When the current list appeared, so its rows can cascade in.
+    pub entered: Option<Instant>,
     pub git: String,
     pub pick: Picker,
     fetch_id: u64,
@@ -395,6 +404,8 @@ impl App {
             sel: 0,
             modal: None,
             spinner: 0,
+            eased: 0.0,
+            entered: None,
             git,
             pick: Picker::default(),
             fetch_id: 0,
@@ -417,24 +428,20 @@ impl App {
         let ticks = self.tx.clone();
         thread::spawn(move || {
             while ticks.send(Event::Tick).is_ok() {
-                thread::sleep(Duration::from_millis(120));
+                thread::sleep(Duration::from_millis(80));
             }
         });
 
         term.draw(|f| ui::draw(f, &self))?;
         while !self.quit {
             let Ok(ev) = self.rx.recv() else { break };
-            // Ticks only animate the spinner and the clocks, so an idle app
-            // sits at zero rather than redrawing eight times a second.
-            let mut redraw = self.wants(&ev);
+            // Every screen animates, so every event repaints. ratatui only
+            // writes the cells that changed, which keeps an idle frame cheap.
             self.handle(ev);
             while let Ok(ev) = self.rx.try_recv() {
-                redraw |= self.wants(&ev);
                 self.handle(ev);
             }
-            if redraw {
-                term.draw(|f| ui::draw(f, &self))?;
-            }
+            term.draw(|f| ui::draw(f, &self))?;
         }
         // Killed clones tidy up the folders they were half-way through
         // writing; give those threads a moment to finish before we exit.
@@ -450,14 +457,16 @@ impl App {
 
     // ------------------------------------------------------------ event plumbing
 
-    /// Is this event worth a repaint?
-    fn wants(&self, ev: &Event) -> bool {
-        !matches!(ev, Event::Tick) || self.busy() || self.pick.loading
-    }
-
     fn handle(&mut self, ev: Event) {
         match ev {
-            Event::Tick => self.spinner = self.spinner.wrapping_add(1),
+            Event::Tick => {
+                self.spinner = self.spinner.wrapping_add(1);
+                let target = self.overall();
+                self.eased += (target - self.eased) * 0.3;
+                if (target - self.eased).abs() < 0.3 {
+                    self.eased = target;
+                }
+            }
             Event::Term(TermEvent::Key(key)) if key.kind == KeyEventKind::Press => self.key(key),
             Event::Term(TermEvent::Paste(text)) => self.paste(&text),
             Event::Term(_) => {}
@@ -466,6 +475,7 @@ impl App {
                     match update {
                         Update::Phase(p) => job.phase = p,
                         Update::Progress(p) => job.pct = job.pct.max(p),
+                        Update::Transfer(t) => job.transfer = t,
                         Update::Log(line) => {
                             if job.log.len() >= LOG_LINES {
                                 job.log.pop_front();
@@ -521,6 +531,7 @@ impl App {
                     Ok(repos) => {
                         self.pick.picked = repos.iter().map(|r| !r.fork && !r.archived).collect();
                         self.pick.repos = repos;
+                        self.entered = Some(Instant::now());
                         None
                     }
                     Err(why) => Some(why),
@@ -746,6 +757,19 @@ impl App {
         self.jobs.iter().any(|j| j.status.is_active())
     }
 
+    /// 0..=100 across every job; finished ones count as complete.
+    pub fn overall(&self) -> f32 {
+        if self.jobs.is_empty() {
+            return 0.0;
+        }
+        let sum: f32 = self
+            .jobs
+            .iter()
+            .map(|j| if j.status.is_active() { f32::from(j.pct) } else { 100.0 })
+            .sum();
+        sum / self.jobs.len() as f32
+    }
+
     pub fn count(&self, status: Status) -> usize {
         self.jobs.iter().filter(|j| j.status == status).count()
     }
@@ -886,6 +910,8 @@ impl App {
         self.banner = Some((note, bad > 0));
         self.jobs = jobs;
         self.sel = 0;
+        self.eased = 0.0;
+        self.entered = Some(Instant::now());
         self.screen = Screen::Progress;
 
         let doomed = self
@@ -933,6 +959,7 @@ impl App {
         view.pct = 0;
         view.phase = "starting".into();
         view.detail = job.dest.display().to_string();
+        view.transfer.clear();
         view.log.clear();
 
         let updates = self.tx.clone();
@@ -978,6 +1005,7 @@ impl App {
         view.pct = 0;
         view.elapsed = None;
         view.started = None;
+        view.transfer.clear();
         view.log.clear();
         self.pump();
     }
@@ -1146,6 +1174,15 @@ mod tests {
             private: n == "api",
             fork,
             archived,
+            language: if n == "web" { "TypeScript".into() } else { "Rust".into() },
+            stars: 1204,
+            forks: 87,
+            issues: 23,
+            size_kb: 12_700,
+            pushed: "2026-09-30".into(),
+            branch: "main".into(),
+            license: "MIT".into(),
+            topics: vec!["cli".into(), "git".into()],
         };
         Ok(vec![
             repo("api", false, false),
@@ -1251,6 +1288,7 @@ https://github.com/orgs/MYORG/repositories",
             job.pct = 42;
             job.started = Some(Instant::now());
             job.detail = "a very long explanation ".repeat(8);
+            job.transfer = "12.30 MiB | 5.00 MiB/s".into();
             job.log.push_back("remote: Counting objects: 100% (12/12), done.".into());
         }
 
@@ -1259,6 +1297,7 @@ https://github.com/orgs/MYORG/repositories",
         a.pick.repos = fake_org("an-org-with-a-long-name", None).unwrap();
         a.pick.picked = vec![true, false, true, false];
         a.pick.row = 3;
+        a.entered = None; // skip the cascade-in, so every row is drawn
 
         for (w, h) in [(100, 30), (60, 15), (200, 60), (40, 10), (61, 16), (300, 16)] {
             let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();

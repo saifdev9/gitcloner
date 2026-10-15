@@ -3,6 +3,8 @@
 A terminal UI ([ratatui](https://ratatui.rs/)) for cloning a pile of git repos in one go —
 public or private, several at a time, with a PAT only when one is needed.
 
+Made by [saifdev9](https://github.com/saifdev9).
+
 ## Install
 
 macOS / Linux:
@@ -32,7 +34,7 @@ Paste a list of URLs, set a destination, add a token if any of them are private,
 press **ctrl+s**. Progress, failures and retries are all on one screen.
 
 ```
- gitcloner  clone many repos — public or private · git version 2.51.0
+ gitcloner  • clone many repos — public or private · git 2.51.0   made by saifdev9 · v0.1.0
 ╭ repositories — one per line (3) ─────────────────────────────────────╮
 │ https://github.com/owner/repo                                        │
 │ owner/another-repo                                                   │
@@ -44,8 +46,39 @@ press **ctrl+s**. Progress, failures and retries are all on one screen.
 ╭ username (optional) ──────╮╭ token / PAT  (ctrl+t shows) ────────────╮
 │ auto per host             ││ ••••••••••••••••••••                    │
 ╰───────────────────────────╯╰─────────────────────────────────────────╯
- shallow: off  submodules: off  if folder exists: skip  at once: 4
+  shallow off   submodules off   if folder exists skip   at once 4
 ```
+
+The screen is animated: the tagline types itself out, list rows cascade in, running
+clones show a moving bar (or a comet while git is still counting), finished ones flash
+their mark, and the org list shows a shimmering placeholder while it loads. Each clone
+shows its download size and speed as git reports them.
+
+## Update
+
+```
+gitcloner --update
+```
+
+runs the installer above for your platform and replaces the binary in place (on
+Windows too, where a running `.exe` cannot be overwritten — it is moved aside first).
+
+On start, gitcloner checks in the background whether a newer release exists. If one
+does, the form says so, and when you quit it prints the commands to paste:
+
+```
+  gitcloner 0.2.0 is out — you have 0.1.0. Update with:
+
+    gitcloner --update
+
+  or paste:
+
+    curl --proto '=https' --tlsv1.2 -LsSf https://github.com/saifdev9/gitcloner/releases/latest/download/gitcloner-installer.sh | sh
+```
+
+The check is one `curl --head` to `github.com/saifdev9/gitcloner/releases/latest`
+(no API quota, no token sent) with a 5 second limit; offline it stays silent. Set
+`GITCLONER_NO_UPDATE_CHECK=1` to turn it off.
 
 ## Run
 
@@ -79,6 +112,7 @@ gitcloner team/private -t ghp_xxx                     # -t, --token, --pat <PAT>
 gitcloner team/private -u me -t glpat_xxx             # -u, --user <NAME>   (default: per host)
 gitcloner -h                                          # -h, --help
 gitcloner -V                                          # -V, --version
+gitcloner --update                                    # update to the latest release
 ```
 
 Pass the token through an environment variable instead, so it stays out of your shell
@@ -122,15 +156,26 @@ Put an org (or user) URL in the list — `https://github.com/myorg` or
 its repos and opens a tick list:
 
 ```
- gitcloner  myorg — 37 of 42 ticked · plus 1 other URL(s)
-╭──────────────────────────────────────────────────────────────────────╮
-│▸[x] myorg/api          private            the public API             │
-│ [ ] myorg/fork-of-x    fork                                          │
-│ [ ] myorg/old-site     archived           2019 marketing site        │
-│ [x] myorg/web                             the web app                │
-╰──────────────────────────────────────────────────────────────────────╯
- ↑↓ move · space tick · a all/none · enter clone ticked · esc back · q quit
+ gitcloner  • myorg — 37 of 42 ticked · about 812.6 MB to fetch · plus 1 other URL(s)
+╭───────────────────────────────────────────────────────────────────────────────────╮
+│▸● myorg/api        ● Go          ★ 1.2k    48.3 MB    3d ago  private the publi… │
+│ ○ myorg/fork-of-x  ● Rust          ★ 7     2.1 MB   8mo ago  fork                │
+│ ○ myorg/old-site   ● HTML         ★ 31    906 KB    6y ago  archived 2019 mark… │
+│ ● myorg/web        ● TypeScript  ★ 412   131.7 MB  today    the web app         │
+╰───────────────────────────────────────────────────────────────────────────────────╯
+╭ myorg/api ──────────────────────────────────────────────────────────── private ╮
+│the public API, plus the worker that drains the billing queue                      │
+│● Go  ·  1.2k stars  ·  87 forks  ·  23 open issues  ·  48.3 MB  ·  license MIT    │
+│branch main  ·  last push 3d ago (2026-10-12)  ·  #api #grpc #billing              │
+│https://github.com/myorg/api.git                                                   │
+╰───────────────────────────────────────────────────────────────────────────────────╯
+ ↑↓ move   space tick   a all/none   enter clone ticked   esc back   q quit
 ```
+
+Each row shows the language, stars, size on GitHub and how long ago it was last pushed;
+the panel underneath has everything else GitHub knows about the highlighted repo:
+description, forks, open issues, license, default branch, topics and the clone URL.
+The title adds up the size of what is ticked, so you know what you are about to pull.
 
 Everything starts ticked except forks and archived repos. **enter** clones the ticked
 ones, plus any plain URLs that were in the list, with the same destination, branch and

@@ -65,6 +65,8 @@ pub struct Job {
 pub enum Update {
     Phase(String),
     Progress(u16),
+    /// Bytes received so far and the rate, as git prints them: `1.00 MiB | 2.00 MiB/s`.
+    Transfer(String),
     Log(String),
 }
 
@@ -255,6 +257,7 @@ fn prepare_dest(job: &Job) -> Result<Dest, String> {
 pub struct Prog {
     pub phase: &'static str,
     pub pct: Option<u16>,
+    pub transfer: Option<String>,
 }
 
 /// (stderr prefix, label shown, where the phase starts, how much it is worth)
@@ -286,7 +289,13 @@ pub fn parse_progress(line: &str) -> Option<Prog> {
     let body = line.strip_prefix("remote: ").unwrap_or(line);
     let (_, label, start, span) = PHASES.iter().find(|(prefix, ..)| body.starts_with(prefix))?;
     let pct = percent_in(body).map(|p| (start + span * f32::from(p) / 100.0).round() as u16);
-    Some(Prog { phase: label, pct })
+    // "Receiving objects:  50% (50/100), 1.00 MiB | 2.00 MiB/s[, done.]"
+    let transfer = body
+        .strip_prefix("Receiving objects")
+        .and_then(|rest| rest.rsplit_once("), "))
+        .map(|(_, stats)| stats.trim_end_matches(", done.").trim().to_string())
+        .filter(|stats| !stats.is_empty());
+    Some(Prog { phase: label, pct, transfer })
 }
 
 // -------------------------------------------------------------- error messages
@@ -487,6 +496,9 @@ pub fn run_job(job: &Job, handle: &Handle, emit: &mut dyn FnMut(Update)) -> Outc
                             last_pct = pct;
                             emit(Update::Progress(pct));
                         }
+                        if let Some(stats) = prog.transfer {
+                            emit(Update::Transfer(stats));
+                        }
                     }
                     None => emit(Update::Log(trimmed.clone())),
                 }
@@ -543,6 +555,10 @@ mod tests {
     fn progress_lines() {
         let p = parse_progress("Receiving objects:  50% (50/100), 1.00 MiB | 2.00 MiB/s").unwrap();
         assert_eq!((p.phase, p.pct), ("receiving", Some(45)));
+        assert_eq!(p.transfer.as_deref(), Some("1.00 MiB | 2.00 MiB/s"));
+        let p = parse_progress("Receiving objects: 100% (9/9), 12.30 MiB | 5.00 MiB/s, done.").unwrap();
+        assert_eq!(p.transfer.as_deref(), Some("12.30 MiB | 5.00 MiB/s"));
+        assert_eq!(parse_progress("Receiving objects:   1% (1/100)").unwrap().transfer, None);
         let p = parse_progress("remote: Compressing objects: 100% (30/30), done.").unwrap();
         assert_eq!((p.phase, p.pct), ("compressing", Some(10)));
         let p = parse_progress("Resolving deltas: 100% (12/12), done.").unwrap();

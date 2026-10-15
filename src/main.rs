@@ -5,6 +5,7 @@ mod clone;
 mod org;
 mod repo;
 mod ui;
+mod update;
 
 use std::io::{self, Write};
 use std::panic;
@@ -14,7 +15,7 @@ use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
 use ratatui::crossterm::execute;
 use ratatui::crossterm::tty::IsTty;
 
-const HELP: &str = "\
+const HELP: &str = concat!("\
 gitcloner — clone many git repos, public or private, from one screen
 
 USAGE:
@@ -37,6 +38,7 @@ OPTIONS:
     -u, --user <NAME>     username for the token (default: per host)
     -t, --token <PAT>     personal access token for private repos
         --shallow         --depth 1 --single-branch
+        --update          update gitcloner to the latest release
     -h, --help            this text
     -V, --version         version
 
@@ -51,13 +53,23 @@ KEYS:
     r / R             retry one / all failed    b        back to the form
     space             tick a repo (org list)    a        tick all / none
     q / esc           quit
-";
+
+On start it checks in the background for a newer release and, if there is
+one, says how to update when you quit. GITCLONER_NO_UPDATE_CHECK=1 turns
+that off.
+
+made by ", env!("CARGO_PKG_AUTHORS"), " · ", env!("CARGO_PKG_REPOSITORY"), "
+");
 
 fn main() -> ExitCode {
     // Re-entrant mode: git calls this binary back to ask for credentials.
     if std::env::var_os(clone::ENV_ASKPASS).is_some() {
         return askpass();
     }
+    if std::env::args().skip(1).any(|a| a == "--update") {
+        return update::run();
+    }
+    update::tidy();
 
     let prefill = match parse_args() {
         Ok(Some(prefill)) => prefill,
@@ -100,10 +112,20 @@ fn main() -> ExitCode {
     }));
     let _ = execute!(io::stdout(), EnableBracketedPaste);
 
+    update::spawn_check();
     let result = app::App::new(prefill, git).run(&mut terminal);
 
     let _ = execute!(io::stdout(), DisableBracketedPaste);
     ratatui::restore();
+
+    // The UI said so too; this copy stays on screen, ready to paste.
+    if let Some(v) = update::available() {
+        eprintln!(
+            "\n  gitcloner {v} is out — you have {}. Update with:\n\n    gitcloner --update\n\n  or paste:\n\n    {}\n",
+            env!("CARGO_PKG_VERSION"),
+            update::install_command()
+        );
+    }
 
     match result {
         Ok(code) => ExitCode::from(code),
@@ -131,7 +153,11 @@ fn parse_args() -> Result<Option<app::Prefill>, String> {
                 return Ok(None);
             }
             "-V" | "--version" => {
-                println!("gitcloner {}", env!("CARGO_PKG_VERSION"));
+                println!(
+                    "gitcloner {} — made by {}",
+                    env!("CARGO_PKG_VERSION"),
+                    env!("CARGO_PKG_AUTHORS")
+                );
                 return Ok(None);
             }
             "-d" | "--dest" => prefill.dest = Some(value("--dest")?),
