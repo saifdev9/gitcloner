@@ -1,6 +1,7 @@
 //! gitcloner — a terminal UI for cloning a pile of git repos, public or private.
 
 mod app;
+mod art;
 mod clone;
 mod org;
 mod repo;

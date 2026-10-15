@@ -179,6 +179,8 @@ impl TextArea {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
+    /// The planet and the menu, when the app opens.
+    Splash,
     Form,
     Pick,
     Progress,
@@ -376,6 +378,8 @@ pub struct App {
     pub popped: Option<Instant>,
     /// Selected row in the settings panel; scroll offset in the help panel.
     pub menu_row: usize,
+    /// Selected entry on the start screen.
+    pub start_row: usize,
     pub settings: Settings,
     /// The token owner's GitHub account, once asked for; `None` while loading
     /// or when there is no token.
@@ -425,7 +429,8 @@ impl App {
         let token = prefill.token.or_else(env_token);
         let has_urls = !prefill.urls.is_empty();
         Self {
-            screen: Screen::Form,
+            // URLs on the command line mean "get on with it".
+            screen: if has_urls || !settings.splash { Screen::Form } else { Screen::Splash },
             field: if has_urls { Field::Dest } else { Field::Urls },
             urls: TextArea::new(&prefill.urls),
             dest: Input::new(&dest),
@@ -443,6 +448,7 @@ impl App {
             modal: None,
             popped: None,
             menu_row: 0,
+            start_row: 0,
             settings,
             account: None,
             account_loading: false,
@@ -652,6 +658,7 @@ impl App {
             return;
         }
         match self.screen {
+            Screen::Splash => self.splash_key(key),
             Screen::Form => self.form_key(key),
             Screen::Pick => self.pick_key(key),
             Screen::Progress => self.progress_key(key),
@@ -757,7 +764,8 @@ impl App {
             }
             1 => s.motion = !s.motion,
             2 => s.popup = !s.popup,
-            _ => s.update_check = !s.update_check,
+            3 => s.update_check = !s.update_check,
+            _ => s.splash = !s.splash,
         }
         if let Err(why) = s.save() {
             self.banner = Some((why, true));
@@ -800,11 +808,31 @@ impl App {
         }
     }
 
+    fn splash_key(&mut self, key: KeyEvent) {
+        let n = ui::START_MENU.len();
+        match key.code {
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => self.start_row = (self.start_row + 1) % n,
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
+                self.start_row = (self.start_row + n - 1) % n
+            }
+            KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Right => match self.start_row {
+                0 => self.screen = Screen::Form,
+                1 => self.open_panel(Modal::Settings),
+                2 => self.open_panel(Modal::Profile),
+                3 => self.open_panel(Modal::Help),
+                _ => self.request_quit(),
+            },
+            KeyCode::Esc | KeyCode::Char('q') => self.request_quit(),
+            _ => {}
+        }
+    }
+
     fn form_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Tab => self.cycle_field(1),
             KeyCode::BackTab => self.cycle_field(-1),
             KeyCode::F(5) => self.start(),
+            KeyCode::Esc if self.settings.splash => self.screen = Screen::Splash,
             KeyCode::Esc => self.request_quit(),
             _ => {}
         }
@@ -1213,6 +1241,7 @@ mod tests {
         // Default settings with no file behind them: tests never touch the
         // real settings, and never write any.
         let mut a = App::new(Prefill::default(), "git version test".into(), Settings::default());
+        a.screen = Screen::Form;
         a.parallel = 0;
         a
     }
@@ -1504,7 +1533,7 @@ https://github.com/orgs/MYORG/repositories",
             if (w, h) == (100, 30) {
                 println!("{}", term.backend());
             }
-            for screen in [Screen::Form, Screen::Progress] {
+            for screen in [Screen::Splash, Screen::Form, Screen::Progress] {
                 a.screen = screen;
                 for field in FIELDS {
                     a.field = field;
@@ -1594,6 +1623,28 @@ https://github.com/orgs/MYORG/repositories",
             term.draw(|f| ui::draw(f, &a)).unwrap();
             println!("{}", term.backend());
         }
+    }
+
+    #[test]
+    fn the_start_screen_leads_to_the_form_and_back() {
+        let mut a = App::new(Prefill::default(), "git".into(), Settings::default());
+        assert!(a.screen == Screen::Splash, "opens on the start screen");
+        a.key(press(KeyCode::Down));
+        a.key(press(KeyCode::Enter));
+        assert_eq!(a.modal, Some(Modal::Settings), "second entry is settings");
+        a.key(press(KeyCode::Esc));
+        a.key(press(KeyCode::Up));
+        a.key(press(KeyCode::Enter));
+        assert!(a.screen == Screen::Form);
+        a.key(press(KeyCode::Esc));
+        assert!(a.screen == Screen::Splash, "esc on the form goes back");
+
+        let prefill = Prefill { urls: vec!["o/r".into()], ..Prefill::default() };
+        let a = App::new(prefill, "git".into(), Settings::default());
+        assert!(a.screen == Screen::Form, "URLs on the command line skip it");
+        let off = Settings { splash: false, ..Settings::default() };
+        let a = App::new(Prefill::default(), "git".into(), off);
+        assert!(a.screen == Screen::Form, "turned off in settings");
     }
 
     #[test]

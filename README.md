@@ -156,6 +156,13 @@ so piping its input or output fails. The exit code is 1 if any clone failed.
 The ctrl keys are there for terminals that keep the F-keys for themselves (VS Code's
 takes F1). Outside the form, `?` opens help too.
 
+## Start screen
+
+`gitcloner` with no arguments opens on a start screen: a pixel planet turning under
+a short menu — Clone repos, Settings, Profile, Help, Quit — with stars twinkling round
+it. ↑/↓ and enter choose; esc on the form comes back here. Passing URLs on the command
+line skips it, and settings can turn it off.
+
 ## Settings, profile and help
 
 **F2 — settings.** Changes apply as you make them and are saved to

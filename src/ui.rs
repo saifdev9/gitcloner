@@ -14,7 +14,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Wrap};
 
 use crate::app::{App, Field, Input, Modal, Screen, Status};
 use crate::clone::OnExisting;
-use crate::{settings, update};
+use crate::{art, settings, update};
 
 /// One accent; every other colour means a result. 256-colour indexes rather
 /// than truecolor, so a theme looks the same everywhere, macOS Terminal.app
@@ -123,6 +123,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         return;
     }
     match app.screen {
+        Screen::Splash => splash(f, area, app),
         Screen::Form => form(f, area, app),
         Screen::Pick => picker(f, area, app),
         Screen::Progress => progress(f, area, app),
@@ -324,6 +325,116 @@ fn render_banner(f: &mut Frame, area: Rect, app: &App) {
     );
 }
 
+// ---------------------------------------------------------------- start screen
+
+pub const START_MENU: [&str; 5] = ["Clone repos", "Settings", "Profile", "Help", "Quit"];
+
+const QUOTES: &str = "\u{201c}Paste a list. Press ctrl+s.\u{201d} \u{2014} the whole manual        \
+    \u{201c}Tokens go through GIT_ASKPASS, never argv.\u{201d} \u{2014} the security notes        \
+    \u{201c}A failed clone takes its folder with it.\u{201d} \u{2014} the edge cases        \
+    \u{201c}Pick from a whole org, ticked or not.\u{201d} \u{2014} the org picker        \
+    \u{201c}gitcloner --update\u{201d} \u{2014} how to stay current        ";
+
+/// A planet turning under a short menu, like the landing page.
+fn splash(f: &mut Frame, area: Rect, app: &App) {
+    let t = th();
+    let [top, stage, ticker, help] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Fill(1),
+        Constraint::Length(3),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+
+    f.render_widget(
+        Line::from(vec![Span::styled(" git", fg(t.text).bold()), Span::styled("cloner", fg(t.accent).bold())]),
+        top,
+    );
+    f.render_widget(Line::from(Span::styled(format!("{BYLINE} "), fg(t.dim))).right_aligned(), top);
+
+    // Where the menu goes, worked out first so the stars can stay off it.
+    // A tall window gets a gap between entries and a box round the chosen one.
+    let roomy = stage.height >= 20;
+    let step: u16 = if roomy { 2 } else { 1 };
+    let menu_w = 32.min(stage.width);
+    let menu_h = (4 + START_MENU.len() as u16 * step).min(stage.height);
+    let menu = Rect {
+        x: stage.x + (stage.width - menu_w) / 2,
+        y: stage.y + u16::from(stage.height > menu_h + 6),
+        width: menu_w,
+        height: menu_h,
+    };
+
+    // the art: two pixels per cell, top one in the foreground of `▀`
+    let (w, h) = (stage.width as usize, stage.height as usize * 2);
+    let keep_out = art::KeepOut {
+        x0: (menu.x - stage.x) as usize,
+        y0: (menu.y - stage.y) as usize * 2,
+        x1: (menu.right() - stage.x) as usize,
+        y1: (menu.bottom() - stage.y) as usize * 2,
+    };
+    let px = art::sky(w, h, tick(app), keep_out);
+    let buf = f.buffer_mut();
+    for row in 0..stage.height as usize {
+        for col in 0..w {
+            let cell = &mut buf[(stage.x + col as u16, stage.y + row as u16)];
+            match (px[row * 2 * w + col], px[(row * 2 + 1) * w + col]) {
+                (Some(a), Some(b)) => cell.set_char('▀').set_fg(a).set_bg(b),
+                (Some(a), None) => cell.set_char('▀').set_fg(a),
+                (None, Some(b)) => cell.set_char('▄').set_fg(b),
+                (None, None) => continue,
+            };
+        }
+    }
+
+    // title, with a cursor that blinks
+    let blink = !app.settings.motion || (tick(app) / 6) & 1 == 0;
+    let line = |y: u16| Rect { y, height: 1, ..menu };
+    if menu.height > 0 {
+        f.render_widget(
+            Line::from(vec![
+                Span::styled("G I T C L O N E R ", fg(t.accent_hi).bold()),
+                Span::styled(if blink { "█" } else { " " }, fg(t.accent)),
+            ])
+            .centered(),
+            line(menu.y),
+        );
+    }
+    if menu.height > 1 {
+        f.render_widget(
+            Line::from(Span::styled("clone many repos at once", fg(t.muted))).centered(),
+            line(menu.y + 1),
+        );
+    }
+    for (i, label) in START_MENU.iter().enumerate() {
+        let y = menu.y + 3 + i as u16 * step;
+        if y >= menu.bottom() {
+            break;
+        }
+        let here = i == app.start_row;
+        if here && roomy {
+            f.render_widget(panel().border_type(BorderType::Plain).border_style(fg(t.muted)), Rect { y: y - 1, height: 3, ..menu });
+        }
+        let style = match (here, roomy) {
+            (true, true) => fg(t.text).bold(),
+            (true, false) => fg(t.ink).bg(t.accent).bold(),
+            _ => fg(t.dim),
+        };
+        f.render_widget(Line::from(Span::styled(*label, style)).centered(), Rect { x: menu.x + 1, width: menu.width.saturating_sub(2), ..line(y) });
+    }
+
+    // the quote line, scrolling
+    let block = Block::new().borders(ratatui::widgets::Borders::TOP | ratatui::widgets::Borders::BOTTOM).border_style(fg(t.faint));
+    let inner = block.inner(ticker);
+    f.render_widget(block, ticker);
+    let quotes: Vec<char> = QUOTES.chars().collect();
+    let from = tick(app) / 2 % quotes.len();
+    let text: String = quotes.iter().cycle().skip(from).take(inner.width as usize).collect();
+    f.render_widget(Line::from(Span::styled(text, fg(t.muted))), inner);
+
+    footer(f, help, &[("↑/↓", "select"), ("⏎", "confirm"), ("esc", "quit")]);
+}
+
 // ------------------------------------------------------------------- the form
 
 fn form(f: &mut Frame, area: Rect, app: &App) {
@@ -426,7 +537,8 @@ fn form(f: &mut Frame, area: Rect, app: &App) {
         ),
         _ => render_banner(f, banner, app),
     }
-    footer(f, help, &[("tab", "next field"), ("ctrl+s", "clone"), ("esc", "quit")]);
+    let esc = if app.settings.splash { "menu" } else { "quit" };
+    footer(f, help, &[("tab", "next field"), ("ctrl+s", "clone"), ("esc", esc)]);
 }
 
 fn on_off(v: bool) -> &'static str {
@@ -961,13 +1073,17 @@ pub const HELP: &[(&str, &str)] = &[
     ("esc", "close a panel"),
     ("ctrl+c", "quit (asks first while clones are running)"),
     ("", ""),
+    ("", "START SCREEN"),
+    ("↑ ↓  enter", "choose: clone, settings, profile, help, quit"),
+    ("esc  q", "quit"),
+    ("", ""),
     ("", "THE FORM"),
     ("tab  shift+tab", "next / previous field"),
     ("ctrl+s  F5", "start cloning"),
     ("ctrl+t", "show / hide the token"),
     ("ctrl+u  ctrl+w", "clear the field / delete a word"),
     ("← → space", "change a toggle; 1-9 sets \"at once\""),
-    ("esc", "quit"),
+    ("esc", "back to the start screen (or quit, when it is off)"),
     ("", ""),
     ("", "ORG LIST"),
     ("↑ ↓  j k", "move"),
@@ -1031,7 +1147,7 @@ fn help_panel(f: &mut Frame, area: Rect, app: &App) {
 fn settings_panel(f: &mut Frame, area: Rect, app: &App) {
     let t = th();
     let s = &app.settings;
-    let rect = popup(f, area, app, 78, 13);
+    let rect = popup(f, area, app, 78, 14);
     let block = titled(Span::styled(" settings ", fg(t.accent).bold()), t.accent).title_bottom(
         Line::from(Span::styled(" ↑↓ choose · ←→ change · esc close ", fg(t.dim))).right_aligned(),
     );
@@ -1043,6 +1159,7 @@ fn settings_panel(f: &mut Frame, area: Rect, app: &App) {
         ("animations", on_off(s.motion), "moving bars, shimmer, lists cascading in"),
         ("popup when done", on_off(s.popup), "a summary when a batch of clones ends"),
         ("check for updates", on_off(s.update_check), "one quick look at GitHub on start"),
+        ("start screen", on_off(s.splash), "the planet and menu when gitcloner opens"),
     ];
     let mut lines = vec![Line::default()];
     for (i, (label, value, about)) in rows.into_iter().enumerate() {
