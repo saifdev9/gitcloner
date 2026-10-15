@@ -36,6 +36,10 @@ pub struct OrgRepo {
     /// SPDX id, e.g. `MIT`; empty when there is none or GitHub cannot tell.
     pub license: String,
     pub topics: Vec<String>,
+    /// GitHub's node id, as `gh repo view --json id` prints it (`R_kgDO…`).
+    pub id: String,
+    /// The older numeric id.
+    pub db_id: u64,
 }
 
 /// The GitHub account a token belongs to, for the profile panel.
@@ -213,6 +217,8 @@ fn parse_page(body: &str) -> Result<Vec<OrgRepo>, String> {
                     .as_array()
                     .map(|t| t.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
                     .unwrap_or_default(),
+                id: s("node_id"),
+                db_id: n("id"),
             }
         })
         .collect())
@@ -229,7 +235,8 @@ mod tests {
              "description": "the API", "private": true, "fork": false, "archived": false,
              "language": "Rust", "stargazers_count": 1204, "forks_count": 87,
              "open_issues_count": 23, "size": 12700, "pushed_at": "2026-09-30T08:12:45Z",
-             "default_branch": "main", "license": {"spdx_id": "MIT"}, "topics": ["cli", "git"]},
+             "default_branch": "main", "license": {"spdx_id": "MIT"}, "topics": ["cli", "git"],
+             "id": 812345678, "node_id": "R_kgDOMG7mTg"},
             {"full_name": "acme/old", "clone_url": "https://github.com/acme/old.git",
              "description": null, "private": false, "fork": true, "archived": true,
              "language": null, "license": {"spdx_id": "NOASSERTION"}}
@@ -242,6 +249,7 @@ mod tests {
         assert_eq!((repos[0].language.as_str(), repos[0].pushed.as_str()), ("Rust", "2026-09-30"));
         assert_eq!((repos[0].license.as_str(), repos[0].branch.as_str()), ("MIT", "main"));
         assert_eq!(repos[0].topics, ["cli", "git"]);
+        assert_eq!((repos[0].id.as_str(), repos[0].db_id), ("R_kgDOMG7mTg", 812_345_678));
         assert_eq!(repos[1].description, "");
         assert_eq!((repos[1].language.as_str(), repos[1].license.as_str()), ("", ""));
         assert!(repos[1].fork && repos[1].archived);

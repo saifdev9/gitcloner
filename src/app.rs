@@ -1406,6 +1406,8 @@ mod tests {
             branch: "main".into(),
             license: "MIT".into(),
             topics: vec!["cli".into(), "git".into()],
+            id: format!("R_kgDO{n}"),
+            db_id: 812_345_678,
         };
         Ok(vec![
             repo("api", false, false),
@@ -1532,6 +1534,10 @@ https://github.com/orgs/MYORG/repositories",
             }
             if (w, h) == (100, 30) {
                 println!("{}", term.backend());
+            }
+            if w >= 200 {
+                let rows = term.backend().to_string();
+                assert!(rows.contains("R_kgDOapi") && rows.contains("R_kgDOforked"), "repo ids missing from the rows");
             }
             for screen in [Screen::Splash, Screen::Form, Screen::Progress] {
                 a.screen = screen;

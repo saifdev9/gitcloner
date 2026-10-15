@@ -667,6 +667,9 @@ fn repo_rows(f: &mut Frame, area: Rect, app: &App) {
         .clamp(8, 36);
     // marker + tick (3), name, then language 14, stars 8, size 10, pushed 10
     let meta = width >= 3 + name_w + 42 + 12;
+    // then the repo id (as `gh repo view --json id` prints it), when there is room
+    let id_w = p.repos.iter().map(|r| r.id.chars().count()).max().unwrap_or(0);
+    let ids = meta && id_w > 0 && width >= 3 + name_w + 42 + 2 + id_w + 12;
     let shown = revealed(app);
 
     let lines: Vec<Line> = p
@@ -701,6 +704,9 @@ fn repo_rows(f: &mut Frame, area: Rect, app: &App) {
                 spans.push(Span::styled(format!("{:>8}", format!("★ {}", count(repo.stars))), meta_style));
                 spans.push(Span::styled(format!("{:>10}", size(repo.size_kb)), meta_style));
                 spans.push(Span::styled(format!("{:>10}", ago(&repo.pushed)), meta_style));
+            }
+            if ids {
+                spans.push(Span::styled(format!("  {}", pad(&repo.id, id_w)), fg(th().dim)));
             }
             let mut room = width.saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 2);
             spans.push(Span::raw("  "));
@@ -772,7 +778,10 @@ fn repo_detail(f: &mut Frame, area: Rect, app: &App) {
             )],
         ),
     ]);
-    let url = Line::from(Span::styled(repo.url.clone(), fg(th().dim)));
+    let url = join(vec![
+        vec![Span::styled(repo.url.clone(), fg(th().dim))],
+        some(!repo.id.is_empty(), labelled("id", format!("{} ({})", repo.id, repo.db_id))),
+    ]);
     f.render_widget(Paragraph::new(vec![description, facts, history, url]).block(block), area);
 }
 

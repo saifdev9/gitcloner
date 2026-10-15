@@ -11,6 +11,7 @@
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
+    color-scheme: dark; /* dark scrollbars and form controls */
     --bg: #05070c;
     --band: #070b14;
     --line: #1b2230;
@@ -213,6 +214,83 @@
   .note { margin-top: 14px; font-size: 12px; color: var(--dim); }
   .note code { color: var(--muted); }
 
+  /* clone from here: the app's form, in the page */
+  .cloner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 48px; align-items: start; }
+  .field { display: grid; gap: 8px; margin-bottom: 18px; align-content: start; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field small { font-size: 11px; line-height: 1.5; color: var(--dim); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  textarea, input[type="text"], input[type="password"], input[type="number"], select {
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  textarea { min-height: 150px; resize: vertical; line-height: 1.6; }
+  textarea::placeholder, input::placeholder { color: var(--dim); }
+  textarea:focus, input:focus, select:focus { border-color: var(--accent); }
+  .toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip, .mini, .linkish {
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .chip { padding: 6px 14px; border: 1px solid var(--line); background: transparent; color: var(--dim); }
+  .chip:hover { color: var(--text); }
+  .chip[aria-pressed="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+  .chip:active, .mini:active { transform: translateY(1px); }
+  .mini { padding: 2px 8px; border: 1px solid var(--line); background: transparent; color: var(--muted); }
+  .mini:hover { color: var(--accent); border-color: var(--accent); }
+  .linkish { padding: 0; border: 0; background: none; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+  .pk, .cl-jobs { border: 1px solid var(--line); background: var(--bg); margin-bottom: 18px; font-size: 12px; }
+  .pk-head, .jl-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: var(--muted); }
+  .pk-head b, .jl-head b { color: var(--text); font-weight: 500; }
+  .pk-head .gap, .jl-head .gap { flex: 1; }
+  .pk-list, .jl-list { max-height: 260px; overflow-y: auto; overflow-x: hidden; scrollbar-color: var(--line) transparent; }
+  .pk-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1.4fr) 90px 56px 72px 64px;
+    gap: 10px;
+    align-items: baseline;
+    padding: 6px 14px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .pk-row:hover { background: #0b111c; }
+  .pk-row input { accent-color: var(--accent); margin: 0; }
+  .pk-row .nm { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pk-row.off .nm { color: var(--dim); }
+  .pk-row .r { text-align: right; }
+  .pk-row .sub { grid-column: 2 / -1; margin-top: -2px; font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { color: #d7af5f; margin-right: 6px; }
+  .rid { color: var(--dim); cursor: copy; }
+  .rid:hover { color: var(--accent); }
+  .jr { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; padding: 5px 14px; align-items: baseline; }
+  .jr > span:nth-child(2) { min-width: 0; }
+  .jr .u { display: block; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jr .nm { color: var(--text); }
+  .jr .br { color: var(--accent); }
+  .jr.bad .nm { color: var(--fail); }
+  .empty { padding: 22px 14px; color: var(--dim); }
+  .skel { height: 10px; margin: 10px 14px; background: linear-gradient(90deg, #111827 0%, #1f2937 50%, #111827 100%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  .cl-code pre { max-height: 360px; overflow: auto; white-space: pre; word-break: normal; scrollbar-color: var(--line) transparent; }
+  .cl-code pre.plain::before { content: none; }
+  .code-actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+  .code-actions .copy { position: static; }
+  #cl-zip { display: grid; gap: 6px; font-size: 13px; }
+  #cl-zip a { color: var(--accent-hi); text-decoration: none; }
+  #cl-zip a:hover { color: var(--accent); }
+
   /* the TUI, re-created */
   .term {
     border: 1px solid var(--line);
@@ -268,7 +346,7 @@
 
   .cli { display: grid; grid-template-columns: 1.1fr 1fr; gap: 56px; align-items: start; }
   /* grid columns may shrink below their content; wide code scrolls in its own box */
-  .install > *, .demo > *, .cli > *, .ref > * { min-width: 0; }
+  .install > *, .demo > *, .cli > *, .ref > *, .cloner > * { min-width: 0; }
   .flags { width: 100%; border-collapse: collapse; font-size: 13px; }
   .flags td { padding: 12px 0; border-top: 1px solid var(--line); vertical-align: top; color: var(--muted); }
   .flags td:first-child { padding-right: 24px; white-space: nowrap; }
@@ -294,7 +372,10 @@
   footer a:hover { color: var(--accent); }
 
   @media (max-width: 820px) {
-    .install, .demo, .cli, .ref { grid-template-columns: 1fr; gap: 32px; }
+    .install, .demo, .cli, .ref, .cloner { grid-template-columns: 1fr; gap: 32px; }
+    .row2 { grid-template-columns: 1fr; gap: 0; }
+    .pk-row { grid-template-columns: 18px minmax(0, 1fr) 64px; }
+    .pk-row > span:nth-of-type(2), .pk-row > span:nth-of-type(4), .pk-row > span:nth-of-type(5) { display: none; }
     .ref-index { display: none; }
     .group ul { grid-template-columns: 1fr; }
     .keys { grid-template-columns: 1fr 1fr; gap: 24px; }
@@ -319,6 +400,7 @@
     <a class="brand" href="#">git<b>cloner</b></a>
     <nav>
       <a href="#install">install</a>
+      <a href="#clone">clone</a>
       <a href="#features">features</a>
       <a href="#demo">demo</a>
       <a href="https://github.com/saifdev9/gitcloner">github</a>
@@ -332,6 +414,7 @@
       <p class="tagline">clone many repos at once — public or private</p>
       <nav class="menu" aria-label="Main">
         <a href="#install" class="sel">Install</a>
+        <a href="#clone">Clone from here</a>
         <a href="#features">Features</a>
         <a href="#demo">See it run</a>
         <a href="https://github.com/saifdev9/gitcloner/releases/latest">Releases</a>
@@ -367,6 +450,81 @@
         <button class="copy" id="copy">copy</button>
       </div>
       <p class="note">Already have it? <code>gitcloner --update</code> fetches the latest release.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="clone">
+  <div class="wrap">
+    <h2>Clone from here</h2>
+    <p class="lead">The app's form, in your browser. Paste repos or an org, pick the options, then copy one command or a script that clones them all with plain git. Browsers may not run git on your computer, so the last step is one paste into a terminal.</p>
+    <div class="cloner">
+      <form class="cl-form" autocomplete="off" onsubmit="return false">
+        <div class="field">
+          <label for="cl-repos">Repositories — one per line, or a whole list</label>
+          <textarea id="cl-repos" spellcheck="false" placeholder="https://github.com/owner/repo&#10;owner/another-repo&#10;git@github.com:team/private-thing.git&#10;https://github.com/your-org"></textarea>
+          <small>An org or user URL lets you pick from its repos. A browser link with /tree/&lt;branch&gt; keeps its branch.</small>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="cl-dest">Destination folder</label>
+            <input id="cl-dest" type="text" value="~/src" placeholder="current folder">
+          </div>
+          <div class="field">
+            <label for="cl-branch">Branch</label>
+            <input id="cl-branch" type="text" placeholder="each repo's default">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="cl-mode">If the folder exists</label>
+            <select id="cl-mode">
+              <option value="skip">skip it</option>
+              <option value="rename">clone beside it, as repo-2</option>
+            </select>
+            <small>Overwrite lives in the app, where it can ask first.</small>
+          </div>
+          <div class="field">
+            <label for="cl-n">At once</label>
+            <input id="cl-n" type="number" min="1" max="16" value="4">
+          </div>
+        </div>
+        <div class="field">
+          <label>Options</label>
+          <div class="toggles">
+            <button type="button" class="chip" id="cl-shallow" aria-pressed="false">shallow</button>
+            <button type="button" class="chip" id="cl-subs" aria-pressed="false">submodules</button>
+          </div>
+          <small>Shallow is --depth 1 --single-branch: the latest code, no history.</small>
+        </div>
+        <div class="field">
+          <label for="cl-token">Token — only to list an org's private repos</label>
+          <input id="cl-token" type="password" placeholder="optional · ghp_…">
+          <small>Stays in this page and goes only to api.github.com. It is never put into a command, a script or a link.</small>
+        </div>
+      </form>
+
+      <div class="cl-out">
+        <div id="cl-pickers"></div>
+        <div class="cl-jobs" id="cl-jobs"></div>
+        <div class="tabs" role="tablist" id="cl-tabs">
+          <button role="tab" aria-selected="true" data-out="app">gitcloner</button>
+          <button role="tab" aria-selected="false" data-out="sh">bash / zsh</button>
+          <button role="tab" aria-selected="false" data-out="ps">PowerShell</button>
+          <button role="tab" aria-selected="false" data-out="json">JSON</button>
+          <button role="tab" aria-selected="false" data-out="zip">ZIP</button>
+        </div>
+        <div class="code cl-code">
+          <pre id="cl-code"></pre>
+          <div id="cl-zip" hidden></div>
+          <div class="code-actions">
+            <button class="copy" id="cl-copy" type="button">copy</button>
+            <button class="copy" id="cl-save" type="button">download</button>
+          </div>
+        </div>
+        <p class="note" id="cl-note"></p>
+        <p class="note"><button class="linkish" id="cl-share" type="button">copy a link to this list</button> — whoever opens it gets the same repos and options.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -693,7 +851,7 @@
     a.addEventListener("focus", () => select(i));
   });
   addEventListener("keydown", (e) => {
-    if (scrollY > innerHeight * 0.5 || e.target.closest("button, input")) return;
+    if (scrollY > innerHeight * 0.5 || e.target.closest("button, input, textarea, select")) return;
     if (e.key === "ArrowDown") { select(sel + 1); e.preventDefault(); }
     if (e.key === "ArrowUp") { select(sel - 1); e.preventDefault(); }
     if (e.key === "Enter" && !e.target.closest("a")) items[sel].click();
@@ -810,6 +968,507 @@
     }
   }, { rootMargin: "-30% 0px -60% 0px" });
   document.querySelectorAll(".group").forEach((g) => reading.observe(g));
+  // ------------------------------------------------------------- clone from here
+  // The app's form in the page: the same parsing rules as src/repo.rs, the
+  // same org picker, and a command or script to paste at the end.
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const PAGE = location.protocol.startsWith("http") ? location.origin + location.pathname : "https://saifdev9.github.io/gitcloner/";
+  const API = "https://api.github.com";
+  const CUTS = new Set(["-", "tree", "blob", "commit", "commits", "compare", "releases", "tags", "issues", "pull", "pulls",
+    "merge_requests", "actions", "wiki", "raw", "archive", "branches", "settings", "discussions"]);
+  const RESERVED = new Set(["con", "prn", "aux", "nul", ..."123456789".split("").flatMap((d) => ["com" + d, "lpt" + d])]);
+  const f = {
+    repos: $("cl-repos"), dest: $("cl-dest"), branch: $("cl-branch"), mode: $("cl-mode"), n: $("cl-n"),
+    shallow: $("cl-shallow"), subs: $("cl-subs"), token: $("cl-token"),
+  };
+  const orgs = new Map(); // lowercased name -> { name, state: idle|loading|ok|err, repos, ticked, error }
+  const ids = new Map(); // "owner/repo" lowercased -> { id, dbId } | { error }
+  let out = "app";
+  let plan = null; // what render() worked out, for the buttons
+
+  const ago = (d) => {
+    if (!d) return "";
+    const days = Math.floor((Date.now() - Date.parse(d)) / 864e5);
+    return days <= 0 ? "today" : days < 31 ? days + "d ago" : days < 365 ? Math.floor(days / 30) + "mo ago" : Math.floor(days / 365) + "y ago";
+  };
+  const size = (kb) => (kb < 1024 ? kb + " KB" : kb < 1048576 ? (kb / 1024).toFixed(1) + " MB" : (kb / 1048576).toFixed(1) + " GB");
+  const count = (n) => (n < 1000 ? String(n) : n < 1e4 ? Math.floor(n / 100) / 10 + "k" : n < 1e6 ? Math.floor(n / 1000) + "k" : Math.floor(n / 1e5) / 10 + "M");
+
+  /** Newlines, commas, semicolons or spaces between entries; stray quotes and brackets trimmed. */
+  const split = (text) => text.split(/[\n\r,;]+/).flatMap((line) => line.trim().split(/\s+/))
+    .map((s) => s.replace(/^["'`<(]+|["'`>),]+$/g, "")).filter(Boolean);
+
+  /** A folder name Windows accepts too. */
+  function folder(seg) {
+    let n = (seg || "").replace(/\.git$/i, "").replace(/[<>:"'`/\\|?*\s\x00-\x1f]/g, "-").replace(/[. ]+$/, "");
+    if (!n) return null;
+    if (RESERVED.has(n.toLowerCase())) n += "-repo";
+    return n;
+  }
+
+  function parse(input) {
+    const org = input.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/(?:orgs\/([\w.-]+)(?:\/repositories)?|([\w.-]+))\/?$/i);
+    if (org) return { kind: "org", name: org[1] || org[2] };
+    const named = (url, segs, extra = {}) => {
+      const name = folder(segs[segs.length - 1]);
+      return name ? { kind: "repo", url, name, ...extra } : { kind: "bad", input, why: "no repo name in it" };
+    };
+    if (/^[A-Za-z]:[\\/]|^[/~.]|^file:\/\//i.test(input)) {
+      return named(input, input.split(/[\\/]/).filter(Boolean), { local: true });
+    }
+    if (/^(ssh|git):\/\//i.test(input)) return named(input, input.replace(/^\w+:\/\/[^/]+/, "").split("/").filter(Boolean));
+    const scp = input.match(/^(?:[\w.-]+@)?([\w-]+(?:\.[\w-]+)+):(?!\/\/)(.+)$/);
+    if (scp) {
+      const segs = scp[2].split("/").filter(Boolean);
+      const gh = scp[1].toLowerCase() === "github.com" && segs.length === 2 ? { owner: segs[0], repo: segs[1].replace(/\.git$/i, "") } : null;
+      return named(input, segs, { gh });
+    }
+    if (/^https?:\/\//i.test(input) || /^[\w-]+(?:\.[\w-]+)+\//.test(input)) {
+      let u;
+      try { u = new URL(/^https?:/i.test(input) ? input : "https://" + input); } catch { return { kind: "bad", input, why: "not a URL" }; }
+      const segs = u.pathname.split("/").filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch { return s; } });
+      let cut = segs.findIndex((s, i) => i >= 2 && CUTS.has(s));
+      let branch = null;
+      if (cut < 0) cut = segs.length;
+      else {
+        const at = segs[cut] === "-" ? cut + 1 : cut;
+        if (segs[at] === "tree" && segs[at + 1]) branch = segs.slice(at + 1).join("/");
+      }
+      const path = segs.slice(0, cut);
+      if (path.length < 2) return { kind: "bad", input, why: "needs owner/repo after the host" };
+      const host = u.host.toLowerCase().replace(/^www\./, "");
+      const gh = host === "github.com" && path.length === 2 ? { owner: path[0], repo: path[1].replace(/\.git$/i, "") } : null;
+      return named(`${u.protocol}//${u.host}/${path.join("/")}`, path, { branch, gh, creds: !!(u.username || u.password) });
+    }
+    const short = input.match(/^([\w-]+)\/([\w.-]+)$/);
+    if (short) {
+      const repo = short[2].replace(/\.git$/i, "");
+      return named(`https://github.com/${short[1]}/${repo}`, [repo], { gh: { owner: short[1], repo } });
+    }
+    return { kind: "bad", input, why: "not a git URL — try https://host/owner/repo, owner/repo or git@host:owner/repo" };
+  }
+
+  // --- GitHub API (it allows calls from a page; the token goes nowhere else)
+  const headers = () => {
+    const h = { Accept: "application/vnd.github+json" };
+    const t = f.token.value.trim();
+    if (t) h.Authorization = "Bearer " + t;
+    return h;
+  };
+  async function problem(r) {
+    const msg = (await r.json().catch(() => ({}))).message || "";
+    if (r.status === 401) return "token rejected — check it has not expired";
+    if ((r.status === 403 || r.status === 429) && /rate limit/i.test(msg)) return "GitHub API rate limit hit — add a token (60 requests an hour without one)";
+    return msg ? `GitHub answered ${r.status}: ${msg}` : `GitHub answered ${r.status}`;
+  }
+  async function listOrg(name) {
+    const all = async (base) => {
+      const repos = [];
+      for (let page = 1; ; page++) {
+        const r = await fetch(`${base}${base.includes("?") ? "&" : "?"}per_page=100&page=${page}`, { headers: headers() });
+        if (r.status === 404 && page === 1) return null;
+        if (!r.ok) throw new Error(await problem(r));
+        const batch = await r.json();
+        repos.push(...batch);
+        if (batch.length < 100) return repos;
+      }
+    };
+    let repos = await all(`${API}/orgs/${encodeURIComponent(name)}/repos?type=all&sort=full_name`);
+    if (!repos) {
+      let mine = false;
+      if (f.token.value.trim()) {
+        const r = await fetch(`${API}/user`, { headers: headers() });
+        if (r.ok) mine = (await r.json()).login.toLowerCase() === name.toLowerCase();
+      }
+      repos = await all(mine ? `${API}/user/repos?affiliation=owner&sort=full_name` : `${API}/users/${encodeURIComponent(name)}/repos?type=owner&sort=full_name`);
+    }
+    if (!repos) throw new Error("no GitHub org or user by that name");
+    return repos.map((r) => ({
+      full: r.full_name, url: r.clone_url, desc: r.description || "", private: r.private, fork: r.fork, archived: r.archived,
+      lang: r.language || "", stars: r.stargazers_count, kb: r.size, pushed: r.pushed_at, branch: r.default_branch,
+      id: r.node_id, dbId: r.id,
+    }));
+  }
+  async function loadOrg(key) {
+    const o = orgs.get(key);
+    o.state = "loading";
+    render();
+    try {
+      o.repos = await listOrg(o.name);
+      o.ticked = new Set(o.repos.filter((r) => !r.fork && !r.archived).map((r) => r.url));
+      for (const r of o.repos) ids.set(r.full.toLowerCase(), { id: r.id, dbId: r.dbId });
+      o.state = o.repos.length ? "ok" : "err";
+      if (!o.repos.length) o.error = "no repositories you can see — add a token for private ones";
+    } catch (e) {
+      o.state = "err";
+      o.error = e.message;
+    }
+    render();
+  }
+  async function lookUpIds(jobs) {
+    const todo = jobs.filter((j) => j.gh && !ids.has(j.key));
+    for (const j of todo) ids.set(j.key, { pending: true });
+    render();
+    await Promise.all(todo.map(async (j) => {
+      try {
+        const r = await fetch(`${API}/repos/${j.gh.owner}/${j.gh.repo}`, { headers: headers() });
+        if (!r.ok) throw new Error(r.status === 404 ? "not found (private? add a token)" : await problem(r));
+        const b = await r.json();
+        ids.set(j.key, { id: b.node_id, dbId: b.id });
+      } catch (e) {
+        ids.set(j.key, { error: e.message });
+      }
+    }));
+    render();
+  }
+
+  /** What would be cloned: the same dedup and folder rules as the app. */
+  function compute() {
+    const parsed = split(f.repos.value).map(parse);
+    const fieldBranch = f.branch.value.trim();
+    const seen = new Set(), names = new Set(), jobs = [];
+    let dupes = 0;
+    const add = (url, base, branch, gh) => {
+      const key = url.toLowerCase().replace(/\.git$/, "").replace(/\/+$/, "");
+      if (seen.has(key)) { dupes++; return; }
+      seen.add(key);
+      let name = base, n = 2;
+      while (names.has(name.toLowerCase())) name = `${base}-${n++}`;
+      names.add(name.toLowerCase());
+      jobs.push({ url, name, branch: fieldBranch || branch || "", gh, key: gh ? `${gh.owner}/${gh.repo}`.toLowerCase() : "" });
+    };
+    for (const p of parsed) {
+      if (p.kind === "repo") add(p.url, p.name, p.branch, p.gh);
+      if (p.kind !== "org") continue;
+      const key = p.name.toLowerCase();
+      if (!orgs.has(key)) orgs.set(key, { name: p.name, state: "idle", repos: [], ticked: new Set(), error: "" });
+      const o = orgs.get(key);
+      if (o.state !== "ok") continue;
+      for (const r of o.repos) {
+        if (!o.ticked.has(r.url)) continue;
+        const [owner, repo] = r.full.split("/");
+        add(r.url, folder(repo), null, { owner, repo });
+      }
+    }
+    const shown = new Set(parsed.filter((p) => p.kind === "org").map((p) => p.name.toLowerCase()));
+    return {
+      jobs, dupes,
+      bad: parsed.filter((p) => p.kind === "bad"),
+      orgs: [...shown].map((k) => [k, orgs.get(k)]),
+      creds: parsed.some((p) => p.creds),
+    };
+  }
+
+  const opts = () => ({
+    dest: f.dest.value.trim(), branch: f.branch.value.trim(), mode: f.mode.value,
+    n: Math.max(1, Math.min(16, parseInt(f.n.value, 10) || 4)),
+    shallow: f.shallow.getAttribute("aria-pressed") === "true", subs: f.subs.getAttribute("aria-pressed") === "true",
+  });
+
+  // --- the five ways out
+  const arg = (s) => (/^[\w./:@~+=-]+$/.test(s) ? s : s.includes("'") ? `"${s}"` : `'${s}'`);
+  function appCommand(jobs, o) {
+    const parts = ["gitcloner", ...jobs.map((j) => arg(j.url))];
+    if (o.dest) parts.push("-d", arg(o.dest));
+    if (o.branch) parts.push("-b", arg(o.branch));
+    if (o.shallow) parts.push("--shallow");
+    return parts.join(" ");
+  }
+  function bashScript(jobs, o) {
+    const q = (s) => "'" + s.replace(/'/g, "'\\''") + "'";
+    const dest = o.dest === "~" ? '"$HOME"' : o.dest.startsWith("~/") ? '"$HOME"/' + q(o.dest.slice(2)) : o.dest ? q(o.dest) : ".";
+    let flags = "";
+    if (o.shallow) flags += " --depth 1 --single-branch";
+    if (o.subs) flags += o.shallow ? " --recurse-submodules --shallow-submodules" : " --recurse-submodules";
+    return [
+      "#!/usr/bin/env bash",
+      `# ${jobs.length} repo(s), ${o.n} at a time - made on ${PAGE}`,
+      "# Private repos use the git credentials you already have (or SSH URLs).",
+      "set -u",
+      `export GIT_TERMINAL_PROMPT=0 MODE=${o.mode}`,
+      `DEST=${dest}`,
+      'mkdir -p "$DEST" && cd "$DEST" || exit 1',
+      "",
+      "clone() {",
+      "  url=$1 dir=$2 branch=$3",
+      '  if [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then',
+      '    if [ "$MODE" = skip ]; then echo "skip  $dir  (already there)"; return 0; fi',
+      '    n=2; while [ -e "$dir-$n" ]; do n=$((n + 1)); done; dir="$dir-$n"',
+      "  fi",
+      '  if [ "$branch" = - ]; then set --; else set -- --branch "$branch"; fi',
+      `  if err=$(git clone --quiet${flags} "$@" -- "$url" "$dir" 2>&1); then`,
+      '    echo "done  $dir"',
+      "  else",
+      "    echo \"FAIL  $dir  $(printf '%s' \"$err\" | tail -n 1)\" >&2; return 1",
+      "  fi",
+      "}",
+      "export -f clone",
+      "",
+      `xargs -P ${o.n} -n 3 bash -c 'clone "$@"' _ <<'LIST'`,
+      ...jobs.map((j) => `${j.url} ${j.name} ${j.branch || "-"}`),
+      "LIST",
+      'if [ $? -eq 0 ]; then echo "all done, in $PWD"; else echo "some failed - see the FAIL lines"; exit 1; fi',
+    ].join("\n");
+  }
+  function psScript(jobs, o) {
+    const q = (s) => "'" + s.replace(/'/g, "''") + "'";
+    const dest = !o.dest ? "(Get-Location).Path" : o.dest === "~" ? "$HOME" : /^~[\\/]/.test(o.dest) ? `(Join-Path $HOME ${q(o.dest.slice(2))})` : q(o.dest);
+    return [
+      `# ${jobs.length} repo(s), ${o.n} at a time - made on ${PAGE}`,
+      "# Private repos use the git credentials you already have (or SSH URLs).",
+      `$dest = ${dest}`,
+      `$atOnce = ${o.n}`,
+      `$mode = ${q(o.mode)}`,
+      `$shallow = $${o.shallow}`,
+      `$submodules = $${o.subs}`,
+      "$repos = @(",
+      ...jobs.map((j) => `  @{ Url = ${q(j.url)}; Dir = ${q(j.name)}; Branch = ${q(j.branch)} }`),
+      ")",
+      "",
+      "New-Item -ItemType Directory -Force -Path $dest | Out-Null",
+      "$work = {",
+      "  param($url, $path, $branch, $shallow, $submodules)",
+      "  $env:GIT_TERMINAL_PROMPT = '0'",
+      "  $gitArgs = @('clone', '--quiet')",
+      "  if ($shallow) { $gitArgs += '--depth', '1', '--single-branch' }",
+      "  if ($branch) { $gitArgs += '--branch', $branch }",
+      "  if ($submodules) { $gitArgs += '--recurse-submodules'; if ($shallow) { $gitArgs += '--shallow-submodules' } }",
+      "  $gitArgs += '--', $url, $path",
+      "  $err = & git @gitArgs 2>&1 | Select-Object -Last 1",
+      "  $name = Split-Path $path -Leaf",
+      '  if ($LASTEXITCODE -eq 0) { "done  $name" } else { "FAIL  $name  $err" }',
+      "}",
+      "",
+      "$results = @()",
+      "foreach ($r in $repos) {",
+      "  $path = Join-Path $dest $r.Dir",
+      "  if ((Test-Path $path) -and (Get-ChildItem -Force $path | Select-Object -First 1)) {",
+      '    if ($mode -eq \'skip\') { $results += "skip  $($r.Dir)  (already there)"; continue }',
+      '    $n = 2; while (Test-Path "$path-$n") { $n++ }; $path = "$path-$n"',
+      "  }",
+      "  while (@(Get-Job -State Running).Count -ge $atOnce) { Start-Sleep -Milliseconds 200 }",
+      "  Start-Job -ScriptBlock $work -ArgumentList $r.Url, $path, $r.Branch, $shallow, $submodules | Out-Null",
+      "}",
+      "$results += Get-Job | Wait-Job | Receive-Job",
+      "Get-Job | Remove-Job",
+      "$results",
+      "$failed = @($results | Where-Object { $_ -like 'FAIL*' }).Count",
+      'if ($failed) { "$failed failed"; exit 1 } else { "all done, in $dest" }',
+    ].join("\n");
+  }
+  function asJson(jobs) {
+    return JSON.stringify(jobs.map((j) => {
+      const known = ids.get(j.key) || {};
+      return {
+        id: known.id || null,
+        databaseId: known.dbId || null,
+        nameWithOwner: j.gh ? `${j.gh.owner}/${j.gh.repo}` : null,
+        url: j.url,
+        folder: j.name,
+        branch: j.branch || null,
+      };
+    }), null, 2);
+  }
+  const zipUrl = (j) => `https://github.com/${j.gh.owner}/${j.gh.repo}/archive/${j.branch ? "refs/heads/" + j.branch.split("/").map(encodeURIComponent).join("/") : "HEAD"}.zip`;
+
+  // --- drawing
+  const idCell = (key) => {
+    const known = ids.get(key);
+    if (!known) return "";
+    if (known.pending) return `<span class="d">looking up…</span>`;
+    if (known.error) return `<span class="bad">${esc(known.error)}</span>`;
+    return `<span class="rid" data-copy="${esc(known.id)}" title="database id ${known.dbId} · click to copy">${esc(known.id)}</span>`;
+  };
+
+  function pickers(list) {
+    return list.map(([key, o]) => {
+      const name = `<b>${esc(o.name)}</b>`;
+      if (o.state === "idle") {
+        return `<div class="pk"><div class="pk-head">${name}<span>an org or user on GitHub</span><span class="gap"></span>
+          <button class="mini" data-list="${esc(key)}">list its repos</button></div></div>`;
+      }
+      if (o.state === "loading") {
+        return `<div class="pk"><div class="pk-head">${name}<span>listing its repositories…</span></div>
+          ${'<div class="skel"></div>'.repeat(5)}</div>`;
+      }
+      if (o.state === "err") {
+        return `<div class="pk"><div class="pk-head">${name}<span class="bad">${esc(o.error)}</span><span class="gap"></span>
+          <button class="mini" data-list="${esc(key)}">try again</button></div></div>`;
+      }
+      const ticked = o.repos.filter((r) => o.ticked.has(r.url));
+      const kb = ticked.reduce((s, r) => s + r.kb, 0);
+      const rows = o.repos.map((r) => {
+        const on = o.ticked.has(r.url);
+        const tags = [r.private && "private", r.fork && "fork", r.archived && "archived"].filter(Boolean).map((t) => `<span class="tag">${t}</span>`).join("");
+        return `<label class="pk-row${on ? "" : " off"}">
+          <input type="checkbox" data-org="${esc(key)}" data-url="${esc(r.url)}"${on ? " checked" : ""}>
+          <span class="nm">${esc(r.full)}</span><span>${esc(r.lang)}</span><span class="r">★ ${count(r.stars)}</span>
+          <span class="r">${size(r.kb)}</span><span class="r">${ago(r.pushed)}</span>
+          <span class="sub">${tags}${idCell(r.full.toLowerCase())}${r.desc ? " · " + esc(r.desc) : ""}</span></label>`;
+      }).join("");
+      return `<div class="pk"><div class="pk-head">${name}<span>${ticked.length} of ${o.repos.length} ticked · about ${size(kb)} to fetch</span>
+        <span class="gap"></span><button class="mini" data-all="${esc(key)}">all</button><button class="mini" data-none="${esc(key)}">none</button></div>
+        <div class="pk-list" data-key="${esc(key)}">${rows}</div></div>`;
+    }).join("");
+  }
+
+  function render() {
+    const c = compute();
+    plan = c;
+    const o = opts();
+
+    // keep each picker's scroll position across redraws
+    const scrolls = new Map([...document.querySelectorAll(".pk-list")].map((el) => [el.dataset.key, el.scrollTop]));
+    $("cl-pickers").innerHTML = pickers(c.orgs);
+    document.querySelectorAll(".pk-list").forEach((el) => (el.scrollTop = scrolls.get(el.dataset.key) || 0));
+
+    const facts = [`<b>${c.jobs.length}</b> to clone`];
+    if (c.dupes) facts.push(`${c.dupes} duplicate(s) dropped`);
+    if (c.bad.length) facts.push(`<span class="bad">${c.bad.length} unusable</span>`);
+    const needIds = c.jobs.some((j) => j.gh && !ids.has(j.key));
+    const rows = c.jobs.map((j) => `<div class="jr"><span class="ok">✔</span><span><span class="nm">${esc(j.name)}</span>
+        <span class="u">${esc(j.url)}</span>${j.branch ? ` <span class="br">@${esc(j.branch)}</span>` : ""}</span><span>${j.gh ? idCell(j.key) : ""}</span></div>`)
+      .concat(c.bad.map((b) => `<div class="jr bad"><span class="bad">✖</span><span><span class="nm">${esc(b.input)}</span> <span class="u">${esc(b.why)}</span></span><span></span></div>`))
+      .join("");
+    $("cl-jobs").innerHTML = `<div class="jl-head">${facts.join(" · ")}<span class="gap"></span>
+        ${needIds ? '<button class="mini" id="cl-ids">look up repo IDs</button>' : ""}</div>
+      <div class="jl-list">${rows || '<div class="empty">Paste a repository on the left — it shows up here, ready to clone.</div>'}</div>`;
+
+    // the output
+    const code = $("cl-code"), zip = $("cl-zip");
+    const empty = !c.jobs.length;
+    code.hidden = out === "zip";
+    zip.hidden = out !== "zip";
+    code.classList.toggle("plain", out !== "app");
+    $("cl-save").hidden = !(out === "sh" || out === "ps" || out === "json");
+    let note = "";
+    if (out === "app") {
+      code.textContent = empty ? "gitcloner" : appCommand(c.jobs, o);
+      note = "Opens gitcloner with the list filled in — press ctrl+s. Submodules, at once and if-the-folder-exists are toggles on its form. Not installed? See <a href=\"#install\">install</a>.";
+    } else if (out === "sh") {
+      code.textContent = empty ? "# add some repositories first" : bashScript(c.jobs, o);
+      note = `Paste it into a terminal on macOS or Linux (or Git Bash), or save it and run <code>bash clone-repos.sh</code>. Plain git, ${o.n} at a time.`;
+    } else if (out === "ps") {
+      code.textContent = empty ? "# add some repositories first" : psScript(c.jobs, o);
+      note = `Paste it into a PowerShell window. Plain git, ${o.n} at a time in background jobs.`;
+    } else if (out === "json") {
+      code.textContent = asJson(c.jobs);
+      note = "Like <code>gh repo view --json id,nameWithOwner</code>, for the whole list. IDs fill in once looked up.";
+    } else {
+      const gh = c.jobs.filter((j) => j.gh);
+      zip.innerHTML = gh.length
+        ? gh.map((j) => `<a href="${esc(zipUrl(j))}" rel="noopener">↓ ${esc(j.gh.owner)}/${esc(j.gh.repo)}${j.branch ? " @" + esc(j.branch) : ""}.zip</a>`).join("")
+          + `<p><button class="mini" id="cl-zip-all">download all ${gh.length}</button></p>`
+        : '<span class="d">ZIPs come straight from GitHub, so this lists GitHub repos only.</span>';
+      note = "Straight from GitHub to your downloads: the files, without git history. Private repos work when you are signed in to GitHub in this browser.";
+    }
+    if (c.creds) note += " A login inside a URL was left out — the commands use your own saved credentials.";
+    $("cl-note").innerHTML = note;
+  }
+
+  // --- wiring
+  let pending = 0;
+  const soon = () => { clearTimeout(pending); pending = setTimeout(render, 200); };
+  [f.repos, f.dest, f.branch, f.n].forEach((el) => el.addEventListener("input", soon));
+  f.mode.addEventListener("change", render);
+  [f.shallow, f.subs].forEach((b) => b.addEventListener("click", () => {
+    b.setAttribute("aria-pressed", String(b.getAttribute("aria-pressed") !== "true"));
+    render();
+  }));
+  f.token.addEventListener("change", () => {
+    for (const o of orgs.values()) if (o.state === "err") o.state = "idle";
+    for (const [k, v] of ids) if (v.error) ids.delete(k);
+    render();
+  });
+  $("cl-pickers").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.list) loadOrg(b.dataset.list);
+    const key = b.dataset.all || b.dataset.none;
+    if (key) {
+      const o = orgs.get(key);
+      o.ticked = new Set(b.dataset.all ? o.repos.map((r) => r.url) : []);
+      render();
+    }
+  });
+  $("cl-pickers").addEventListener("change", (e) => {
+    const box = e.target;
+    if (!box.dataset.org) return;
+    const t = orgs.get(box.dataset.org).ticked;
+    box.checked ? t.add(box.dataset.url) : t.delete(box.dataset.url);
+    render();
+  });
+  document.querySelector(".cloner").addEventListener("click", async (e) => {
+    const id = e.target.closest("[data-copy]");
+    if (id) {
+      e.preventDefault();
+      try { await navigator.clipboard.writeText(id.dataset.copy); id.textContent = "copied"; setTimeout(render, 900); } catch {}
+    }
+    if (e.target.id === "cl-ids" && plan) lookUpIds(plan.jobs);
+    if (e.target.id === "cl-zip-all" && plan) {
+      plan.jobs.filter((j) => j.gh).forEach((j, i) => setTimeout(() => {
+        const a = document.createElement("a");
+        a.href = zipUrl(j);
+        a.rel = "noopener";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }, i * 700));
+    }
+  });
+  const outTabs = [...document.querySelectorAll("#cl-tabs button")];
+  outTabs.forEach((b) => b.addEventListener("click", () => {
+    out = b.dataset.out;
+    outTabs.forEach((t) => t.setAttribute("aria-selected", String(t === b)));
+    render();
+  }));
+  const flash = (btn, text) => { const was = btn.textContent; btn.textContent = text; setTimeout(() => (btn.textContent = was), 1500); };
+  $("cl-copy").addEventListener("click", async () => {
+    const text = out === "zip" ? [...$("cl-zip").querySelectorAll("a")].map((a) => a.href).join("\n") : $("cl-code").textContent;
+    try { await navigator.clipboard.writeText(text); flash($("cl-copy"), "copied"); }
+    catch { getSelection().selectAllChildren($("cl-code")); flash($("cl-copy"), "ctrl+c"); }
+  });
+  $("cl-save").addEventListener("click", () => {
+    const [name, type] = { sh: ["clone-repos.sh", "text/x-shellscript"], ps: ["clone-repos.ps1", "text/plain"], json: ["repos.json", "application/json"] }[out];
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([$("cl-code").textContent + "\n"], { type }));
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $("cl-share").addEventListener("click", async () => {
+    const o = opts(), p = new URLSearchParams();
+    const list = split(f.repos.value);
+    if (list.length) p.set("repos", list.join(","));
+    if (o.dest && o.dest !== "~/src") p.set("dest", o.dest);
+    if (o.branch) p.set("branch", o.branch);
+    if (o.shallow) p.set("shallow", "1");
+    if (o.subs) p.set("submodules", "1");
+    if (o.mode !== "skip") p.set("mode", o.mode);
+    if (o.n !== 4) p.set("n", String(o.n));
+    if (out !== "app") p.set("as", out);
+    const link = `${PAGE}?${p}#clone`;
+    try { await navigator.clipboard.writeText(link); flash($("cl-share"), "link copied"); }
+    catch { prompt("Copy this link", link); }
+  });
+
+  // a shared link fills the form in
+  const q = new URLSearchParams(location.search);
+  if (q.has("repos")) f.repos.value = split(q.get("repos")).join("\n");
+  if (q.has("dest")) f.dest.value = q.get("dest");
+  if (q.has("branch")) f.branch.value = q.get("branch");
+  if (q.get("shallow") === "1") f.shallow.setAttribute("aria-pressed", "true");
+  if (q.get("submodules") === "1") f.subs.setAttribute("aria-pressed", "true");
+  if (q.get("mode") === "rename") f.mode.value = "rename";
+  if (q.has("n")) f.n.value = q.get("n");
+  const as = outTabs.find((b) => b.dataset.out === q.get("as"));
+  if (as) as.click();
+  render();
+  if (q.has("repos")) {
+    for (const [key, o] of orgs) if (o.state === "idle") loadOrg(key);
+    $("clone").scrollIntoView();
+  }
 })();
 </script>
 </body>
