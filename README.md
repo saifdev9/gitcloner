@@ -316,6 +316,28 @@ token entirely and use your keys / filesystem.
 - Windows: `core.longpaths=true`, key-release events ignored, process tree killed with
   `taskkill`.
 
+## Releasing
+
+Nobody bumps versions by hand. Every push to `main` runs the tests, then
+[semantic-release](https://github.com/semantic-release/semantic-release) reads the
+commit messages since the last `vX.Y.Z` tag and picks the next version:
+
+| commit message starts with | release |
+|---|---|
+| `fix:` | patch — 0.2.0 → 0.2.1 |
+| `feat:` | minor — 0.2.0 → 0.3.0 |
+| `feat!:`, or a `BREAKING CHANGE:` line in the body | major — 0.2.0 → 1.0.0 |
+| `docs:`, `chore:`, `refactor:`, `test:`, anything else | none |
+
+It writes the version into `Cargo.toml` and `Cargo.lock`, commits that as
+`chore(release): X.Y.Z`, tags it, and starts the **Release** workflow, which builds
+every platform with [dist](https://github.com/axodotdev/cargo-dist) and publishes the
+GitHub Release with the installers. Config: [.releaserc.json](.releaserc.json) and
+[.github/workflows/semantic-release.yml](.github/workflows/semantic-release.yml).
+
+If a release build fails, start it again from Actions → Release → Run workflow: pick
+the tag under "Use workflow from" and type the same tag into the box.
+
 ## Tests
 
 ```

@@ -1,0 +1,21 @@
+{
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "sed -i 's/^version = \".*\"/version = \"${nextRelease.version}\"/' Cargo.toml && cargo update --workspace",
+        "successCmd": "echo \"tag=${nextRelease.gitTag}\" >> \"$GITHUB_OUTPUT\""
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["Cargo.toml", "Cargo.lock"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]"
+      }
+    ]
+  ]
+}
