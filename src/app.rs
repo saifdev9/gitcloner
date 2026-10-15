@@ -327,14 +327,29 @@ impl JobView {
 /// The org picker: repos listed from one or more org URLs, with a tick each.
 #[derive(Default)]
 pub struct Picker {
-    /// The org names, for the title.
+    /// What is listed, for the title: org names, and how many pasted repos.
     pub orgs: String,
     pub loading: bool,
     pub repos: Vec<OrgRepo>,
     pub picked: Vec<bool>,
+    /// For a pasted repo, the text pasted - cloned as given, so a branch or
+    /// a login in it still counts. `None` for a repo listed from an org.
+    pub pasted: Vec<Option<String>>,
     pub row: usize,
     /// Plain URLs from the form, cloned alongside whatever is ticked.
     pub rest: Vec<String>,
+}
+
+/// A table row on its way in: the repo, and what was pasted for it, if it was.
+type Row = (OrgRepo, Option<String>);
+
+/// `owner/name` when an entry is a GitHub repo the API can describe.
+fn github_repo(entry: &str) -> Option<(String, String)> {
+    let spec = repo::parse(entry).ok().filter(|s| s.kind == Kind::Https && s.host == "github.com")?;
+    let path = spec.url.split_once("github.com/")?.1.trim_end_matches('/');
+    let (owner, name) = path.trim_end_matches(".git").split_once('/')?;
+    let fine = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    (fine(owner) && fine(name)).then(|| (owner.to_string(), name.to_string()))
 }
 
 pub enum Event {
@@ -342,7 +357,7 @@ pub enum Event {
     Job(usize, Update),
     Done(usize, Outcome),
     /// An org listing finished; the id says which request it answers.
-    Listed(u64, Result<Vec<OrgRepo>, String>),
+    Listed(u64, Result<Vec<Row>, String>),
     Account(Result<Account, String>),
     Tick,
 }
@@ -395,6 +410,7 @@ pub struct App {
     pub pick: Picker,
     fetch_id: u64,
     list_repos: fn(&str, Option<&str>) -> Result<Vec<OrgRepo>, String>,
+    look_up: fn(&str, &str, Option<&str>) -> Result<OrgRepo, String>,
     quit: bool,
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -459,6 +475,7 @@ impl App {
             pick: Picker::default(),
             fetch_id: 0,
             list_repos: org::list,
+            look_up: org::repo,
             quit: false,
             tx,
             rx,
@@ -588,9 +605,12 @@ impl App {
                         "{}: no repositories you can see — add a PAT for private ones",
                         self.pick.orgs
                     )),
-                    Ok(repos) => {
-                        self.pick.picked = repos.iter().map(|r| !r.fork && !r.archived).collect();
-                        self.pick.repos = repos;
+                    Ok(rows) => {
+                        // What was pasted was asked for; from an org, forks and
+                        // archived repos start unticked.
+                        self.pick.picked =
+                            rows.iter().map(|(r, p)| p.is_some() || (!r.fork && !r.archived)).collect();
+                        (self.pick.repos, self.pick.pasted) = rows.into_iter().unzip();
                         self.entered = Some(Instant::now());
                         None
                     }
@@ -727,7 +747,7 @@ impl App {
                         self.banner =
                             Some(("still cloning — wait, or press C to cancel, first".into(), true));
                     } else {
-                        self.list_orgs(vec![login], Vec::new());
+                        self.list_orgs(vec![login], Vec::new(), Vec::new());
                     }
                 }
                 KeyCode::Char('r') => self.fetch_account(),
@@ -765,7 +785,8 @@ impl App {
             1 => s.motion = !s.motion,
             2 => s.popup = !s.popup,
             3 => s.update_check = !s.update_check,
-            _ => s.splash = !s.splash,
+            4 => s.splash = !s.splash,
+            _ => s.review = !s.review,
         }
         if let Err(why) = s.save() {
             self.banner = Some((why, true));
@@ -1013,43 +1034,88 @@ impl App {
             return;
         }
         let mut orgs: Vec<String> = Vec::new();
+        let mut pasted: Vec<(String, String, String)> = Vec::new(); // owner, name, entry
         let mut rest = Vec::new();
         for entry in entries {
-            match repo::parse_org(&entry) {
-                Some(name) if orgs.iter().any(|o| o.eq_ignore_ascii_case(&name)) => {}
-                Some(name) => orgs.push(name),
+            if let Some(name) = repo::parse_org(&entry) {
+                if !orgs.iter().any(|o| o.eq_ignore_ascii_case(&name)) {
+                    orgs.push(name);
+                }
+                continue;
+            }
+            match github_repo(&entry).filter(|_| self.settings.review) {
+                Some((owner, name)) => pasted.push((owner, name, entry)),
                 None => rest.push(entry),
             }
         }
-        if orgs.is_empty() {
+        if orgs.is_empty() && pasted.is_empty() {
             return self.queue(rest);
         }
-
-        self.list_orgs(orgs, rest);
+        self.list_orgs(orgs, pasted, rest);
     }
 
-    /// An org means "some of its repos": list them off-thread, then let the
-    /// user tick the ones they want. `rest` is cloned alongside.
-    fn list_orgs(&mut self, orgs: Vec<String>, rest: Vec<String>) {
+    /// Fill the table off-thread - an org's repos, and pasted GitHub repos
+    /// looked up one by one - then let the user tick what they want. `rest`
+    /// (other hosts, SSH, local paths) is cloned alongside.
+    fn list_orgs(&mut self, orgs: Vec<String>, pasted: Vec<(String, String, String)>, rest: Vec<String>) {
         self.fetch_id += 1;
         let id = self.fetch_id;
-        self.pick = Picker { orgs: orgs.join(", "), loading: true, rest, ..Picker::default() };
+        let mut title = orgs.clone();
+        if !pasted.is_empty() {
+            title.push(format!("{} pasted repo(s)", pasted.len()));
+        }
+        self.pick = Picker { orgs: title.join(", "), loading: true, rest, ..Picker::default() };
         self.screen = Screen::Pick;
-        let (tx, list, token) = (self.tx.clone(), self.list_repos, non_empty(&self.token.text));
+        let (tx, list, look_up) = (self.tx.clone(), self.list_repos, self.look_up);
+        let token = non_empty(&self.token.text);
         thread::spawn(move || {
-            let result = orgs.iter().try_fold(Vec::new(), |mut all, name| {
-                all.extend(list(name, token.as_deref()).map_err(|e| format!("{name}: {e}"))?);
-                Ok::<_, String>(all)
-            });
-            let _ = tx.send(Event::Listed(id, result));
+            let token = token.as_deref();
+            let mut rows: Vec<Row> = Vec::new();
+            let mut seen: HashSet<String> = HashSet::new();
+            // Eight lookups at a time. One that fails still clones; it just
+            // says why it has no details.
+            for chunk in pasted.chunks(8) {
+                let found: Vec<Result<OrgRepo, String>> = thread::scope(|s| {
+                    let asks: Vec<_> =
+                        chunk.iter().map(|(o, n, _)| s.spawn(move || look_up(o, n, token))).collect();
+                    asks.into_iter().map(|a| a.join().unwrap_or_else(|_| Err("lookup failed".into()))).collect()
+                });
+                for ((owner, name, entry), result) in chunk.iter().zip(found) {
+                    if !seen.insert(format!("{owner}/{name}").to_ascii_lowercase()) {
+                        continue;
+                    }
+                    let repo = result.unwrap_or_else(|why| OrgRepo {
+                        full_name: format!("{owner}/{name}"),
+                        url: entry.clone(),
+                        description: format!("no details: {why}"),
+                        ..OrgRepo::default()
+                    });
+                    rows.push((repo, Some(entry.clone())));
+                }
+            }
+            for name in &orgs {
+                match list(name, token) {
+                    Ok(repos) => rows.extend(
+                        repos
+                            .into_iter()
+                            .filter(|r| seen.insert(r.full_name.to_ascii_lowercase()))
+                            .map(|r| (r, None)),
+                    ),
+                    Err(e) => {
+                        let _ = tx.send(Event::Listed(id, Err(format!("{name}: {e}"))));
+                        return;
+                    }
+                }
+            }
+            let _ = tx.send(Event::Listed(id, Ok(rows)));
         });
     }
 
     fn confirm_pick(&mut self) {
         let p = &self.pick;
         let mut entries = p.rest.clone();
-        let ticked = p.repos.iter().zip(&p.picked).filter(|(_, on)| **on);
-        entries.extend(ticked.map(|(r, _)| r.url.clone()));
+        let ticked = p.repos.iter().zip(&p.picked).zip(&p.pasted).filter(|((_, on), _)| **on);
+        entries.extend(ticked.map(|((r, _), pasted)| pasted.clone().unwrap_or_else(|| r.url.clone())));
         if entries.is_empty() {
             self.banner = Some(("nothing ticked — space ticks a repo, a ticks them all".into(), true));
             return;
@@ -1242,6 +1308,7 @@ mod tests {
         // real settings, and never write any.
         let mut a = App::new(Prefill::default(), "git version test".into(), Settings::default());
         a.screen = Screen::Form;
+        a.settings.review = false; // has a test of its own
         a.parallel = 0;
         a
     }
@@ -1463,6 +1530,69 @@ https://github.com/orgs/MYORG/repositories",
         );
     }
 
+    fn fake_repo(owner: &str, name: &str, _token: Option<&str>) -> Result<OrgRepo, String> {
+        if name == "secret" {
+            return Err("not found — private? add a PAT".into());
+        }
+        Ok(OrgRepo {
+            full_name: format!("{owner}/{name}"),
+            url: format!("https://github.com/{owner}/{name}.git"),
+            language: "Rust".into(),
+            stars: 7,
+            id: format!("R_kgDO{name}"),
+            db_id: 1_352_239_774,
+            fork: true, // pasted, so ticked anyway
+            ..OrgRepo::default()
+        })
+    }
+
+    /// Pasted GitHub repos are looked up and shown in the table first; a
+    /// failed lookup still clones, and a branch in the pasted URL survives.
+    #[test]
+    fn pasted_github_repos_show_in_the_table_first() {
+        let mut a = app();
+        a.settings.review = true;
+        a.look_up = fake_repo;
+        a.list_repos = fake_org;
+        a.urls.insert_str(
+            "https://github.com/o/known/tree/dev\no/secret\nO/Known\nhttps://gitlab.com/g/p\nhttps://github.com/myorg",
+        );
+        a.start();
+        assert!(a.screen == Screen::Pick && a.pick.loading);
+        assert_eq!(a.pick.rest, ["https://gitlab.com/g/p"], "other hosts clone alongside");
+        assert!(a.pick.orgs.contains("myorg") && a.pick.orgs.contains("pasted"), "{}", a.pick.orgs);
+
+        let ev = next_event(&a);
+        a.handle(ev);
+        let names: Vec<&str> = a.pick.repos.iter().map(|r| r.full_name.as_str()).collect();
+        assert_eq!(names[..2], ["o/known", "o/secret"], "pasted first, the duplicate once");
+        assert_eq!(names.len(), 2 + 4, "then the org's repos");
+        assert_eq!(a.pick.repos[0].db_id, 1_352_239_774);
+        assert!(a.pick.repos[1].description.contains("private? add a PAT"));
+        assert_eq!(a.pick.picked[..2], [true, true], "pasted repos start ticked, even a fork");
+
+        a.key(press(KeyCode::Char('a'))); // all on...
+        a.key(press(KeyCode::Char('a'))); // ...then all off
+        a.key(press(KeyCode::Char(' '))); // known
+        a.key(press(KeyCode::Down));
+        a.key(press(KeyCode::Char(' '))); // secret
+        a.key(press(KeyCode::Enter));
+        assert!(a.screen == Screen::Progress);
+        let jobs: Vec<(&str, Option<&str>)> = a
+            .jobs
+            .iter()
+            .map(|j| (j.url(), j.job.as_ref().and_then(|j| j.branch.as_deref())))
+            .collect();
+        assert_eq!(
+            jobs,
+            [
+                ("https://gitlab.com/g/p", None),
+                ("https://github.com/o/known", Some("dev")),
+                ("https://github.com/o/secret", None),
+            ]
+        );
+    }
+
     #[test]
     fn a_failed_or_abandoned_org_listing_goes_back_to_the_form() {
         let mut a = app();
@@ -1537,7 +1667,7 @@ https://github.com/orgs/MYORG/repositories",
             }
             if w >= 200 {
                 let rows = term.backend().to_string();
-                assert!(rows.contains("R_kgDOapi") && rows.contains("R_kgDOforked"), "repo ids missing from the rows");
+                assert!(rows.contains("  812345678"), "repo ids missing from the rows");
             }
             for screen in [Screen::Splash, Screen::Form, Screen::Progress] {
                 a.screen = screen;

@@ -228,7 +228,14 @@ its repos and opens a tick list:
  ↑↓ move   space tick   a all/none   enter clone ticked   esc back   q quit
 ```
 
-Each row shows the language, stars, size on GitHub and how long ago it was last pushed;
+Repos pasted one by one get the same table: GitHub repos are looked up first (eight at a
+time) and start ticked, and each still clones exactly as pasted, so a `/tree/<branch>` in
+the link still counts. One that cannot be looked up — private without a token, say —
+still clones; its row says why it has no details. Other hosts clone alongside. Turn the
+review off in settings (F2) to go straight to cloning.
+
+Each row shows the language, stars, size on GitHub, how long ago it was last pushed and
+the repo ID (the number `gh api repos/OWNER/REPO --jq .id` prints);
 the panel underneath has everything else GitHub knows about the highlighted repo:
 description, forks, open issues, license, default branch, topics and the clone URL.
 The title adds up the size of what is ticked, so you know what you are about to pull.

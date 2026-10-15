@@ -188,40 +188,57 @@ fn parse_page(body: &str) -> Result<Vec<OrgRepo>, String> {
     let v: Value =
         serde_json::from_str(body).map_err(|e| format!("unexpected reply from GitHub: {e}"))?;
     let items = v.as_array().ok_or("unexpected reply from GitHub: not a list")?;
-    Ok(items
-        .iter()
-        .map(|r| {
-            let s = |k: &str| r[k].as_str().unwrap_or("").to_string();
-            let b = |k: &str| r[k].as_bool().unwrap_or(false);
-            let n = |k: &str| r[k].as_u64().unwrap_or(0);
-            OrgRepo {
-                full_name: s("full_name"),
-                url: s("clone_url"),
-                description: s("description"),
-                private: b("private"),
-                fork: b("fork"),
-                archived: b("archived"),
-                language: s("language"),
-                stars: n("stargazers_count"),
-                forks: n("forks_count"),
-                issues: n("open_issues_count"),
-                size_kb: n("size"),
-                pushed: s("pushed_at").chars().take(10).collect(),
-                branch: s("default_branch"),
-                license: r["license"]["spdx_id"]
-                    .as_str()
-                    .filter(|id| *id != "NOASSERTION")
-                    .unwrap_or("")
-                    .to_string(),
-                topics: r["topics"]
-                    .as_array()
-                    .map(|t| t.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
-                    .unwrap_or_default(),
-                id: s("node_id"),
-                db_id: n("id"),
-            }
-        })
-        .collect())
+    Ok(items.iter().map(parse_repo).collect())
+}
+
+/// One repo object, as GitHub's REST API describes it.
+fn parse_repo(r: &Value) -> OrgRepo {
+    let s = |k: &str| r[k].as_str().unwrap_or("").to_string();
+    let b = |k: &str| r[k].as_bool().unwrap_or(false);
+    let n = |k: &str| r[k].as_u64().unwrap_or(0);
+    OrgRepo {
+        full_name: s("full_name"),
+        url: s("clone_url"),
+        description: s("description"),
+        private: b("private"),
+        fork: b("fork"),
+        archived: b("archived"),
+        language: s("language"),
+        stars: n("stargazers_count"),
+        forks: n("forks_count"),
+        issues: n("open_issues_count"),
+        size_kb: n("size"),
+        pushed: s("pushed_at").chars().take(10).collect(),
+        branch: s("default_branch"),
+        license: r["license"]["spdx_id"]
+            .as_str()
+            .filter(|id| *id != "NOASSERTION")
+            .unwrap_or("")
+            .to_string(),
+        topics: r["topics"]
+            .as_array()
+            .map(|t| t.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default(),
+        id: s("node_id"),
+        db_id: n("id"),
+    }
+}
+
+/// One repo, looked up by name — for repos pasted one by one.
+pub fn repo(owner: &str, name: &str, token: Option<&str>) -> Result<OrgRepo, String> {
+    let token = token.filter(|t| !t.is_empty());
+    let (code, body) = get(&format!("{API}/repos/{owner}/{name}"), token)?;
+    if code == 404 {
+        return Err(if token.is_some() {
+            "not found, or the PAT cannot see it".into()
+        } else {
+            "not found — private? add a PAT".into()
+        });
+    }
+    check(code, &body)?;
+    let v: Value =
+        serde_json::from_str(&body).map_err(|e| format!("unexpected reply from GitHub: {e}"))?;
+    Ok(parse_repo(&v))
 }
 
 #[cfg(test)]
@@ -296,6 +313,11 @@ mod tests {
         let repos = list("rust-lang", None).unwrap();
         assert!(repos.len() > PER_PAGE, "only {} repos: paging stopped early", repos.len());
         assert!(repos.iter().any(|r| r.full_name == "rust-lang/rust"));
+        // one pasted repo, looked up by name
+        let hello = repo("octocat", "Hello-World", None).unwrap();
+        assert_eq!(hello.full_name, "octocat/Hello-World");
+        assert!(!hello.id.is_empty() && hello.db_id == 1_296_269, "{hello:#?}");
+        assert!(repo("octocat", "no-such-repo-x9z", None).unwrap_err().contains("not found"));
         let err = list("gitcloner-no-such-account-x9z", None).unwrap_err();
         assert!(err.contains("no GitHub org or user"), "{err}");
     }

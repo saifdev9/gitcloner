@@ -598,11 +598,12 @@ fn picker(f: &mut Frame, area: Rect, app: &App) {
 
     let p = &app.pick;
     let mut summary = if p.loading {
-        format!("listing the repositories of {}", p.orgs)
+        format!("looking up {}", p.orgs)
     } else {
         let ticked = p.repos.iter().zip(&p.picked).filter(|(_, on)| **on);
         let (n, kb) = ticked.fold((0, 0), |(n, kb), (r, _)| (n + 1, kb + r.size_kb));
-        format!("{} — {n} of {} ticked · about {} to fetch", p.orgs, p.repos.len(), size(kb))
+        let fetch = if kb > 0 { format!(" · about {} to fetch", size(kb)) } else { String::new() };
+        format!("{} — {n} of {} ticked{fetch}", p.orgs, p.repos.len())
     };
     if !p.rest.is_empty() {
         summary += &format!(" · plus {} other URL(s)", p.rest.len());
@@ -667,8 +668,8 @@ fn repo_rows(f: &mut Frame, area: Rect, app: &App) {
         .clamp(8, 36);
     // marker + tick (3), name, then language 14, stars 8, size 10, pushed 10
     let meta = width >= 3 + name_w + 42 + 12;
-    // then the repo id (as `gh repo view --json id` prints it), when there is room
-    let id_w = p.repos.iter().map(|r| r.id.chars().count()).max().unwrap_or(0);
+    // then the repo id (as `gh api repos/OWNER/REPO --jq .id` prints it), when there is room
+    let id_w = p.repos.iter().filter(|r| r.db_id > 0).map(|r| r.db_id.to_string().len()).max().unwrap_or(0);
     let ids = meta && id_w > 0 && width >= 3 + name_w + 42 + 2 + id_w + 12;
     let shown = revealed(app);
 
@@ -701,12 +702,17 @@ fn repo_rows(f: &mut Frame, area: Rect, app: &App) {
                 let dot = if repo.language.is_empty() { "    " } else { "  ● " };
                 spans.push(Span::styled(dot, fg(lang_color(&repo.language))));
                 spans.push(Span::styled(pad(&repo.language, 10), meta_style));
-                spans.push(Span::styled(format!("{:>8}", format!("★ {}", count(repo.stars))), meta_style));
-                spans.push(Span::styled(format!("{:>10}", size(repo.size_kb)), meta_style));
+                // a repo GitHub would not describe has no id: blanks, not zeros
+                let known = !repo.id.is_empty();
+                let stars = if known { format!("★ {}", count(repo.stars)) } else { String::new() };
+                let kb = if known { size(repo.size_kb) } else { String::new() };
+                spans.push(Span::styled(format!("{stars:>8}"), meta_style));
+                spans.push(Span::styled(format!("{kb:>10}"), meta_style));
                 spans.push(Span::styled(format!("{:>10}", ago(&repo.pushed)), meta_style));
             }
             if ids {
-                spans.push(Span::styled(format!("  {}", pad(&repo.id, id_w)), fg(th().dim)));
+                let id = if repo.db_id > 0 { repo.db_id.to_string() } else { String::new() };
+                spans.push(Span::styled(format!("  {id:>id_w$}"), fg(th().dim)));
             }
             let mut room = width.saturating_sub(spans.iter().map(Span::width).sum::<usize>() + 2);
             spans.push(Span::raw("  "));
@@ -758,10 +764,10 @@ fn repo_detail(f: &mut Frame, area: Rect, app: &App) {
                 Span::styled(repo.language.clone(), fg(th().text)),
             ],
         ),
-        stat(repo.stars, "stars"),
-        stat(repo.forks, "forks"),
-        stat(repo.issues, "open issues"),
-        text(size(repo.size_kb)),
+        some(!repo.id.is_empty(), stat(repo.stars, "stars")),
+        some(!repo.id.is_empty(), stat(repo.forks, "forks")),
+        some(!repo.id.is_empty(), stat(repo.issues, "open issues")),
+        some(!repo.id.is_empty(), text(size(repo.size_kb))),
         some(!repo.license.is_empty(), labelled("license", repo.license.clone())),
     ]);
     let history = join(vec![
@@ -780,7 +786,7 @@ fn repo_detail(f: &mut Frame, area: Rect, app: &App) {
     ]);
     let url = join(vec![
         vec![Span::styled(repo.url.clone(), fg(th().dim))],
-        some(!repo.id.is_empty(), labelled("id", format!("{} ({})", repo.id, repo.db_id))),
+        some(repo.db_id > 0, labelled("id", repo.db_id.to_string())),
     ]);
     f.render_widget(Paragraph::new(vec![description, facts, history, url]).block(block), area);
 }
@@ -1156,7 +1162,7 @@ fn help_panel(f: &mut Frame, area: Rect, app: &App) {
 fn settings_panel(f: &mut Frame, area: Rect, app: &App) {
     let t = th();
     let s = &app.settings;
-    let rect = popup(f, area, app, 78, 14);
+    let rect = popup(f, area, app, 80, 15);
     let block = titled(Span::styled(" settings ", fg(t.accent).bold()), t.accent).title_bottom(
         Line::from(Span::styled(" ↑↓ choose · ←→ change · esc close ", fg(t.dim))).right_aligned(),
     );
@@ -1169,6 +1175,7 @@ fn settings_panel(f: &mut Frame, area: Rect, app: &App) {
         ("popup when done", on_off(s.popup), "a summary when a batch of clones ends"),
         ("check for updates", on_off(s.update_check), "one quick look at GitHub on start"),
         ("start screen", on_off(s.splash), "the planet and menu when gitcloner opens"),
+        ("review pasted repos", on_off(s.review), "GitHub details in a table before cloning"),
     ];
     let mut lines = vec![Line::default()];
     for (i, (label, value, about)) in rows.into_iter().enumerate() {

@@ -1261,8 +1261,8 @@
     return JSON.stringify(jobs.map((j) => {
       const known = ids.get(j.key) || {};
       return {
-        id: known.id || null,
-        databaseId: known.dbId || null,
+        id: known.dbId || null,
+        nodeId: known.id || null,
         nameWithOwner: j.gh ? `${j.gh.owner}/${j.gh.repo}` : null,
         url: j.url,
         folder: j.name,
@@ -1278,7 +1278,7 @@
     if (!known) return "";
     if (known.pending) return `<span class="d">looking up…</span>`;
     if (known.error) return `<span class="bad">${esc(known.error)}</span>`;
-    return `<span class="rid" data-copy="${esc(known.id)}" title="database id ${known.dbId} · click to copy">${esc(known.id)}</span>`;
+    return `<span class="rid" data-copy="${known.dbId}" title="node id ${esc(known.id)} · click to copy">${known.dbId}</span>`;
   };
 
   function pickers(list) {
@@ -1354,7 +1354,7 @@
       note = `Paste it into a PowerShell window. Plain git, ${o.n} at a time in background jobs.`;
     } else if (out === "json") {
       code.textContent = asJson(c.jobs);
-      note = "Like <code>gh repo view --json id,nameWithOwner</code>, for the whole list. IDs fill in once looked up.";
+      note = "The <code>id</code> is the one <code>gh api repos/OWNER/REPO --jq .id</code> prints. IDs fill in once looked up.";
     } else {
       const gh = c.jobs.filter((j) => j.gh);
       zip.innerHTML = gh.length

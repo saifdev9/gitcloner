@@ -10,8 +10,8 @@ use serde_json::{Value, json};
 use crate::ui::THEMES;
 
 /// Rows in the settings panel: theme, animations, popup, update check,
-/// start screen.
-pub const ROWS: usize = 5;
+/// start screen, review.
+pub const ROWS: usize = 6;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -23,13 +23,15 @@ pub struct Settings {
     pub update_check: bool,
     /// Open on the planet-and-menu start screen rather than the form.
     pub splash: bool,
+    /// Look pasted GitHub repos up and show them in the table before cloning.
+    pub review: bool,
     /// Where these live. `None` (as in tests) means never written.
     pub path: Option<PathBuf>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: 0, motion: true, popup: true, update_check: true, splash: true, path: None }
+        Self { theme: 0, motion: true, popup: true, update_check: true, splash: true, review: true, path: None }
     }
 }
 
@@ -66,6 +68,7 @@ impl Settings {
             popup: flag("popup_when_done"),
             update_check: flag("check_for_updates"),
             splash: flag("start_screen"),
+            review: flag("review_pasted_repos"),
             path,
         }
     }
@@ -78,6 +81,7 @@ impl Settings {
             "popup_when_done": self.popup,
             "check_for_updates": self.update_check,
             "start_screen": self.splash,
+            "review_pasted_repos": self.review,
         });
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir).map_err(|e| format!("cannot save settings: {e}"))?;
@@ -97,7 +101,7 @@ mod tests {
         let _ = fs::remove_file(&path);
         assert_eq!(Settings::load_from(Some(path.clone())), Settings { path: Some(path.clone()), ..Settings::default() });
 
-        let s = Settings { theme: 3, motion: false, popup: false, update_check: true, splash: false, path: Some(path.clone()) };
+        let s = Settings { theme: 3, motion: false, popup: false, update_check: true, splash: false, review: false, path: Some(path.clone()) };
         s.save().unwrap();
         assert_eq!(Settings::load_from(Some(path.clone())), s);
 
