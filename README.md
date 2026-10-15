@@ -148,6 +148,55 @@ so piping its input or output fails. The exit code is 1 if any clone failed.
 | `+` `-` | change how many run at once, live |
 | `b` | back to the form |
 | `q`, `esc`, `ctrl+c` | quit (asks first if clones are running) |
+| `F1` / `ctrl+g` | help — every key, by screen |
+| `F2` / `ctrl+o` | settings — theme, animations, popup, update check |
+| `F3` / `ctrl+a` | profile — your GitHub account, and who made gitcloner |
+| `o` / `R` / `b` | in the end-of-batch summary: open the folder / retry / back to form |
+
+The ctrl keys are there for terminals that keep the F-keys for themselves (VS Code's
+takes F1). Outside the form, `?` opens help too.
+
+## Settings, profile and help
+
+**F2 — settings.** Changes apply as you make them and are saved to
+`%APPDATA%\gitcloner\settings.json` on Windows, `~/.config/gitcloner/settings.json`
+elsewhere. Tokens are never saved.
+
+```
+╭ settings ──────────────────────────────────────────────────────────────────╮
+│ ▸ theme               ◂ ocean ▸   calm blue                                │
+│   animations            on        moving bars, shimmer, lists cascading in │
+│   popup when done       on        a summary when a batch of clones ends    │
+│   check for updates     on        one quick look at GitHub on start        │
+│                                                                            │
+│   ███ ███ ███ ███ ███   ━━━━━━━━━━━━━╸────────                             │
+╰───────────────────────────────────────── ↑↓ choose · ←→ change · esc close ╯
+```
+
+Themes: **ocean** (blue), **mint**, **ember** (orange), **rose**, **mono** (greys only)
+and **paper** for terminals with a light background. Turning animations off freezes
+every moving part, for slow connections or anyone who prefers a still screen.
+
+**F3 — profile.** With a token set, shows the GitHub account it belongs to — login,
+name, repo and follower counts, bio — and **enter** lists your own repos to pick from.
+Below that: who made gitcloner, the version, and whether an update is out.
+
+**F1 — help.** Every key on every screen, and the URL forms you can paste.
+
+**When a batch finishes**, a summary pops up: how many cloned, failed or were skipped,
+how long it took, where they went, and why each failure failed. `o` opens the folder,
+`R` retries the failures, `b` goes back to the form, `enter` closes it. It can be turned
+off in settings.
+
+```
+╭ ✔ all done ────────────────────────────────────────────────────╮
+│                                                                │
+│   14 cloned  ·  2 skipped                                      │
+│   in 38.4s  →  C:\Users\me\src                                 │
+│                                                                │
+│    enter close   o open folder   R retry   b back to form      │
+╰────────────────────────────────────────────────────────────────╯
+```
 
 ## Cloning from an org
 

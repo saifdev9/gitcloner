@@ -38,6 +38,53 @@ pub struct OrgRepo {
     pub topics: Vec<String>,
 }
 
+/// The GitHub account a token belongs to, for the profile panel.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Account {
+    pub login: String,
+    pub name: String,
+    pub bio: String,
+    pub company: String,
+    pub location: String,
+    pub public_repos: u64,
+    pub private_repos: u64,
+    pub followers: u64,
+    pub following: u64,
+    /// Account created, `YYYY-MM-DD`.
+    pub since: String,
+    pub url: String,
+}
+
+pub fn account(token: &str) -> Result<Account, String> {
+    let (code, body) = get(&format!("{API}/user"), Some(token))?;
+    check(code, &body)?;
+    parse_account(&body)
+}
+
+fn parse_account(body: &str) -> Result<Account, String> {
+    let v: Value =
+        serde_json::from_str(body).map_err(|e| format!("unexpected reply from GitHub: {e}"))?;
+    let s = |k: &str| v[k].as_str().unwrap_or("").trim().to_string();
+    let n = |k: &str| v[k].as_u64().unwrap_or(0);
+    let login = s("login");
+    if login.is_empty() {
+        return Err("unexpected reply from GitHub: no login".into());
+    }
+    Ok(Account {
+        login,
+        name: s("name"),
+        bio: s("bio"),
+        company: s("company"),
+        location: s("location"),
+        public_repos: n("public_repos"),
+        private_repos: n("owned_private_repos"),
+        followers: n("followers"),
+        following: n("following"),
+        since: s("created_at").chars().take(10).collect(),
+        url: s("html_url"),
+    })
+}
+
 /// Every repo of `name` the token can see: as an org first, then as a user.
 /// A user's private repos only show up through `/user/repos`, to their own token.
 pub fn list(name: &str, token: Option<&str>) -> Result<Vec<OrgRepo>, String> {
@@ -46,7 +93,7 @@ pub fn list(name: &str, token: Option<&str>) -> Result<Vec<OrgRepo>, String> {
         return Ok(repos);
     }
     let me = match token {
-        Some(t) => whoami(t)?,
+        Some(t) => Some(account(t)?.login),
         None => None,
     };
     let base = if me.is_some_and(|m| m.eq_ignore_ascii_case(name)) {
@@ -75,15 +122,6 @@ fn fetch_all(base: &str, token: Option<&str>) -> Result<Option<Vec<OrgRepo>>, St
         }
     }
     Ok(Some(repos))
-}
-
-fn whoami(token: &str) -> Result<Option<String>, String> {
-    let (code, body) = get(&format!("{API}/user"), Some(token))?;
-    check(code, &body)?;
-    let login = serde_json::from_str::<Value>(&body)
-        .ok()
-        .and_then(|v| v["login"].as_str().map(str::to_string));
-    Ok(login)
 }
 
 /// One GET through curl. Returns the HTTP status and the body.
@@ -208,6 +246,18 @@ mod tests {
         assert_eq!((repos[1].language.as_str(), repos[1].license.as_str()), ("", ""));
         assert!(repos[1].fork && repos[1].archived);
         assert!(parse_page(r#"{"message": "Not Found"}"#).is_err());
+    }
+
+    #[test]
+    fn reads_the_token_owner() {
+        let body = r#"{"login": "saifdev9", "name": "Saif", "bio": null, "public_repos": 12,
+            "owned_private_repos": 3, "followers": 40, "following": 7,
+            "created_at": "2021-04-02T10:00:00Z", "html_url": "https://github.com/saifdev9"}"#;
+        let a = parse_account(body).unwrap();
+        assert_eq!((a.login.as_str(), a.name.as_str(), a.bio.as_str()), ("saifdev9", "Saif", ""));
+        assert_eq!((a.public_repos, a.private_repos, a.followers), (12, 3, 40));
+        assert_eq!(a.since, "2021-04-02");
+        assert!(parse_account(r#"{"message": "Bad credentials"}"#).is_err());
     }
 
     #[test]

@@ -4,6 +4,7 @@ mod app;
 mod clone;
 mod org;
 mod repo;
+mod settings;
 mod ui;
 mod update;
 
@@ -53,6 +54,11 @@ KEYS:
     r / R             retry one / all failed    b        back to the form
     space             tick a repo (org list)    a        tick all / none
     q / esc           quit
+    F1 or ctrl+g      help                      F2 or ctrl+o   settings (theme…)
+    F3 or ctrl+a      profile (your GitHub account, and who made gitcloner)
+
+Settings are saved to %APPDATA%\\gitcloner\\settings.json on Windows and
+~/.config/gitcloner/settings.json elsewhere. Tokens are never saved.
 
 On start it checks in the background for a newer release and, if there is
 one, says how to update when you quit. GITCLONER_NO_UPDATE_CHECK=1 turns
@@ -112,8 +118,7 @@ fn main() -> ExitCode {
     }));
     let _ = execute!(io::stdout(), EnableBracketedPaste);
 
-    update::spawn_check();
-    let result = app::App::new(prefill, git).run(&mut terminal);
+    let result = app::App::new(prefill, git, settings::Settings::load()).run(&mut terminal);
 
     let _ = execute!(io::stdout(), DisableBracketedPaste);
     ratatui::restore();

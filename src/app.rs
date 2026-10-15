@@ -13,9 +13,10 @@ use ratatui::crossterm::event::{
 };
 
 use crate::clone::{self, Handle, Job, OnExisting, Outcome, Update};
-use crate::org::{self, OrgRepo};
+use crate::org::{self, Account, OrgRepo};
 use crate::repo::{self, Kind};
-use crate::ui;
+use crate::settings::{self, Settings};
+use crate::{ui, update};
 
 const LOG_LINES: usize = 300;
 
@@ -208,10 +209,37 @@ const FIELDS: [Field; 9] = [
     Field::Parallel,
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Modal {
     ConfirmOverwrite(usize),
     ConfirmQuit,
+    /// A batch of clones has finished: what happened, and what next.
+    Done,
+    Help,
+    Settings,
+    Profile,
+}
+
+impl Modal {
+    /// Panels open from anywhere and replace each other; questions do not.
+    pub fn is_panel(self) -> bool {
+        matches!(self, Self::Help | Self::Settings | Self::Profile)
+    }
+}
+
+/// F1-F3, or a ctrl key for terminals that keep the F-keys for themselves
+/// (VS Code takes F1).
+fn panel_for(key: KeyEvent) -> Option<Modal> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::F(1) => Some(Modal::Help),
+        KeyCode::F(2) => Some(Modal::Settings),
+        KeyCode::F(3) => Some(Modal::Profile),
+        KeyCode::Char('g') if ctrl => Some(Modal::Help),
+        KeyCode::Char('o') if ctrl => Some(Modal::Settings),
+        KeyCode::Char('a') if ctrl => Some(Modal::Profile),
+        _ => None,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -313,6 +341,7 @@ pub enum Event {
     Done(usize, Outcome),
     /// An org listing finished; the id says which request it answers.
     Listed(u64, Result<Vec<OrgRepo>, String>),
+    Account(Result<Account, String>),
     Tick,
 }
 
@@ -343,6 +372,15 @@ pub struct App {
     pub jobs: Vec<JobView>,
     pub sel: usize,
     pub modal: Option<Modal>,
+    /// When the modal opened, so it can grow into place.
+    pub popped: Option<Instant>,
+    /// Selected row in the settings panel; scroll offset in the help panel.
+    pub menu_row: usize,
+    pub settings: Settings,
+    /// The token owner's GitHub account, once asked for; `None` while loading
+    /// or when there is no token.
+    pub account: Option<Result<Account, String>>,
+    pub account_loading: bool,
     /// Ticks since launch; every animation is a function of it.
     pub spinner: usize,
     /// The overall percentage as drawn: chases `overall()` so the bar glides.
@@ -380,7 +418,7 @@ fn non_empty(s: &str) -> Option<String> {
 }
 
 impl App {
-    pub fn new(prefill: Prefill, git: String) -> Self {
+    pub fn new(prefill: Prefill, git: String, settings: Settings) -> Self {
         let (tx, rx) = mpsc::channel();
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let dest = prefill.dest.unwrap_or_else(|| cwd.display().to_string());
@@ -403,6 +441,11 @@ impl App {
             jobs: Vec::new(),
             sel: 0,
             modal: None,
+            popped: None,
+            menu_row: 0,
+            settings,
+            account: None,
+            account_loading: false,
             spinner: 0,
             eased: 0.0,
             entered: None,
@@ -417,6 +460,9 @@ impl App {
     }
 
     pub fn run(mut self, term: &mut DefaultTerminal) -> io::Result<u8> {
+        if self.settings.update_check {
+            update::spawn_check();
+        }
         let keys = self.tx.clone();
         thread::spawn(move || {
             while let Ok(ev) = event::read() {
@@ -463,9 +509,13 @@ impl App {
                 self.spinner = self.spinner.wrapping_add(1);
                 let target = self.overall();
                 self.eased += (target - self.eased) * 0.3;
-                if (target - self.eased).abs() < 0.3 {
+                if (target - self.eased).abs() < 0.3 || !self.settings.motion {
                     self.eased = target;
                 }
+            }
+            Event::Account(result) => {
+                self.account_loading = false;
+                self.account = Some(result);
             }
             Event::Term(TermEvent::Key(key)) if key.kind == KeyEventKind::Press => self.key(key),
             Event::Term(TermEvent::Paste(text)) => self.paste(&text),
@@ -517,6 +567,10 @@ impl App {
                     }
                 }
                 self.pump();
+                let open = self.modal.is_none_or(Modal::is_panel);
+                if !self.busy() && open && self.settings.popup && self.screen == Screen::Progress {
+                    self.pop(Some(Modal::Done));
+                }
             }
             Event::Listed(id, result) => {
                 if id != self.fetch_id || !self.pick.loading {
@@ -573,6 +627,16 @@ impl App {
             self.request_quit();
             return;
         }
+        // `?` too, where it cannot be text being typed.
+        let help = key.code == KeyCode::Char('?') && self.screen != Screen::Form;
+        if let Some(panel) = panel_for(key).or(help.then_some(Modal::Help)) {
+            if self.modal == Some(panel) {
+                self.modal = None; // the same key again closes it
+            } else if self.modal.is_none_or(Modal::is_panel) {
+                self.open_panel(panel);
+            }
+            return;
+        }
         if let Some(modal) = self.modal {
             self.modal_key(modal, key);
             return;
@@ -594,7 +658,129 @@ impl App {
         }
     }
 
+    /// Open (or replace) the modal; the UI grows it into place from now.
+    fn pop(&mut self, modal: Option<Modal>) {
+        self.modal = modal;
+        self.popped = Some(Instant::now());
+    }
+
+    fn open_panel(&mut self, panel: Modal) {
+        self.pop(Some(panel));
+        self.menu_row = if panel == Modal::Settings { self.menu_row.min(settings::ROWS - 1) } else { 0 };
+        if panel == Modal::Profile {
+            self.fetch_account();
+        }
+    }
+
+    /// Ask GitHub whose token this is, off-thread.
+    fn fetch_account(&mut self) {
+        let Some(token) = non_empty(&self.token.text) else {
+            self.account = None;
+            return;
+        };
+        self.account_loading = true;
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let _ = tx.send(Event::Account(org::account(&token)));
+        });
+    }
+
     fn modal_key(&mut self, modal: Modal, key: KeyEvent) {
+        let close = matches!(key.code, KeyCode::Esc | KeyCode::Char('q'));
+        match modal {
+            Modal::Help => match key.code {
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.menu_row = (self.menu_row + 1).min(ui::HELP.len() - 1)
+                }
+                KeyCode::Up | KeyCode::Char('k') => self.menu_row = self.menu_row.saturating_sub(1),
+                KeyCode::PageDown => self.menu_row = (self.menu_row + 10).min(ui::HELP.len() - 1),
+                KeyCode::PageUp => self.menu_row = self.menu_row.saturating_sub(10),
+                KeyCode::Enter => self.modal = None,
+                _ if close => self.modal = None,
+                _ => {}
+            },
+            Modal::Settings => match key.code {
+                KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => {
+                    self.menu_row = (self.menu_row + 1) % settings::ROWS
+                }
+                KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => {
+                    self.menu_row = (self.menu_row + settings::ROWS - 1) % settings::ROWS
+                }
+                KeyCode::Right | KeyCode::Char(' ') | KeyCode::Enter => self.change_setting(true),
+                KeyCode::Left => self.change_setting(false),
+                _ if close => self.modal = None,
+                _ => {}
+            },
+            Modal::Profile => match key.code {
+                KeyCode::Enter => {
+                    let Some(Ok(me)) = &self.account else { return };
+                    let login = me.login.clone();
+                    self.modal = None;
+                    if self.busy() {
+                        self.banner =
+                            Some(("still cloning — wait, or press C to cancel, first".into(), true));
+                    } else {
+                        self.list_orgs(vec![login], Vec::new());
+                    }
+                }
+                KeyCode::Char('r') => self.fetch_account(),
+                _ if close => self.modal = None,
+                _ => {}
+            },
+            Modal::Done => match key.code {
+                KeyCode::Char('o') => self.open_folder(),
+                KeyCode::Char('R') | KeyCode::Char('r') => {
+                    self.modal = None;
+                    for idx in 0..self.jobs.len() {
+                        self.retry(idx);
+                    }
+                }
+                KeyCode::Char('b') => {
+                    self.modal = None;
+                    self.screen = Screen::Form;
+                    self.banner = None;
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => self.modal = None,
+                _ if close => self.modal = None,
+                _ => {}
+            },
+            Modal::ConfirmQuit | Modal::ConfirmOverwrite(_) => self.answer(modal, key),
+        }
+    }
+
+    fn change_setting(&mut self, forward: bool) {
+        let s = &mut self.settings;
+        match self.menu_row {
+            0 => {
+                let n = ui::THEMES.len();
+                s.theme = (s.theme + if forward { 1 } else { n - 1 }) % n;
+            }
+            1 => s.motion = !s.motion,
+            2 => s.popup = !s.popup,
+            _ => s.update_check = !s.update_check,
+        }
+        if let Err(why) = s.save() {
+            self.banner = Some((why, true));
+        }
+    }
+
+    /// Show the destination folder in the system's file manager.
+    fn open_folder(&mut self) {
+        let opener = if cfg!(windows) {
+            "explorer"
+        } else if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        let dir = self.dest_root();
+        if let Err(e) = std::process::Command::new(opener).arg(&dir).spawn() {
+            self.banner = Some((format!("could not open {}: {e}", dir.display()), true));
+        }
+    }
+
+    /// The yes / no questions.
+    fn answer(&mut self, modal: Modal, key: KeyEvent) {
         let yes = matches!(key.code, KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter);
         let no = matches!(key.code, KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc);
         if !yes && !no {
@@ -776,7 +962,7 @@ impl App {
 
     fn request_quit(&mut self) {
         if self.busy() {
-            self.modal = Some(Modal::ConfirmQuit);
+            self.pop(Some(Modal::ConfirmQuit));
         } else {
             self.quit = true;
         }
@@ -811,8 +997,12 @@ impl App {
             return self.queue(rest);
         }
 
-        // An org means "some of its repos": list them off-thread, then let
-        // the user tick the ones they want.
+        self.list_orgs(orgs, rest);
+    }
+
+    /// An org means "some of its repos": list them off-thread, then let the
+    /// user tick the ones they want. `rest` is cloned alongside.
+    fn list_orgs(&mut self, orgs: Vec<String>, rest: Vec<String>) {
         self.fetch_id += 1;
         let id = self.fetch_id;
         self.pick = Picker { orgs: orgs.join(", "), loading: true, rest, ..Picker::default() };
@@ -924,14 +1114,16 @@ impl App {
             })
             .count();
         if doomed > 0 {
-            self.modal = Some(Modal::ConfirmOverwrite(doomed));
+            self.pop(Some(Modal::ConfirmOverwrite(doomed)));
         }
         self.pump();
     }
 
     /// Start pending jobs until `parallel` are in flight.
     fn pump(&mut self) {
-        if self.modal.is_some() {
+        // Hold the queue while a question is open; panels and the summary
+        // popup do not stop anything.
+        if matches!(self.modal, Some(Modal::ConfirmOverwrite(_) | Modal::ConfirmQuit)) {
             return;
         }
         let mut free = self
@@ -1018,7 +1210,9 @@ mod tests {
     /// `parallel = 0` means `pump` starts nothing, so a test that only cares
     /// about the queue never shells out to git.
     fn app() -> App {
-        let mut a = App::new(Prefill::default(), "git version test".into());
+        // Default settings with no file behind them: tests never touch the
+        // real settings, and never write any.
+        let mut a = App::new(Prefill::default(), "git version test".into(), Settings::default());
         a.parallel = 0;
         a
     }
@@ -1317,8 +1511,37 @@ https://github.com/orgs/MYORG/repositories",
                     a.modal = None;
                     term.draw(|f| ui::draw(f, &a)).unwrap();
                 }
-                for modal in [Modal::ConfirmQuit, Modal::ConfirmOverwrite(3)] {
+                for modal in [
+                    Modal::ConfirmQuit,
+                    Modal::ConfirmOverwrite(3),
+                    Modal::Help,
+                    Modal::Settings,
+                    Modal::Done,
+                ] {
                     a.modal = Some(modal);
+                    for theme in 0..ui::THEMES.len() {
+                        a.settings.theme = theme;
+                        term.draw(|f| ui::draw(f, &a)).unwrap();
+                    }
+                    a.settings.theme = 0;
+                }
+                // the profile in each state: none, loading, failed, loaded
+                a.modal = Some(Modal::Profile);
+                let me = Account {
+                    login: "saifdev9".into(),
+                    name: "Saif".into(),
+                    bio: "builds small sharp tools ".repeat(6),
+                    since: "2021-04-02".into(),
+                    ..Account::default()
+                };
+                for (account, loading) in [
+                    (None, false),
+                    (None, true),
+                    (Some(Err("PAT rejected — check it has not expired".to_string())), false),
+                    (Some(Ok(me)), false),
+                ] {
+                    a.account = account;
+                    a.account_loading = loading;
                     term.draw(|f| ui::draw(f, &a)).unwrap();
                 }
             }
@@ -1343,6 +1566,94 @@ https://github.com/orgs/MYORG/repositories",
         a.reveal = true;
         term.draw(|f| ui::draw(f, &a)).unwrap();
         assert!(term.backend().to_string().contains("ghp_secret"), "ctrl+t should reveal it");
+    }
+
+    /// Prints each popup: `cargo test popups -- --nocapture`.
+    #[test]
+    fn popups_render() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut a = app();
+        a.urls.insert_str("https://github.com/o/ok\nhttps://github.com/o/broken\nnot-a-url");
+        a.start();
+        a.jobs[0].status = Status::Cloned;
+        a.jobs[1].status = Status::Failed;
+        a.jobs[1].detail = "PAT rejected — check it has not expired".into();
+        a.account = Some(Ok(Account {
+            login: "saifdev9".into(),
+            name: "Saif".into(),
+            public_repos: 12,
+            followers: 40,
+            since: "2021-04-02".into(),
+            ..Account::default()
+        }));
+        let mut term = Terminal::new(TestBackend::new(90, 26)).unwrap();
+        for modal in [Modal::Done, Modal::Settings, Modal::Profile, Modal::Help] {
+            a.modal = Some(modal);
+            term.draw(|f| ui::draw(f, &a)).unwrap();
+            println!("{}", term.backend());
+        }
+    }
+
+    #[test]
+    fn panels_open_close_and_never_hide_a_question() {
+        let mut a = app();
+        a.key(press(KeyCode::F(2)));
+        assert_eq!(a.modal, Some(Modal::Settings));
+        a.key(press(KeyCode::Right)); // theme: ocean -> mint
+        assert_eq!(a.settings.theme, 1);
+        a.key(press(KeyCode::Left));
+        a.key(press(KeyCode::Left)); // wraps round to the last theme
+        assert_eq!(a.settings.theme, ui::THEMES.len() - 1);
+        a.key(press(KeyCode::Down));
+        a.key(press(KeyCode::Char(' ')));
+        assert!(!a.settings.motion, "space flips animations off");
+        a.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
+        assert_eq!(a.modal, Some(Modal::Help), "one panel replaces another");
+        a.key(press(KeyCode::F(1)));
+        assert_eq!(a.modal, None, "the same key closes it");
+
+        // typing ? into the form is text, not help
+        a.key(press(KeyCode::Char('?')));
+        assert_eq!((a.modal, a.urls.text().as_str()), (None, "?"));
+
+        a.modal = Some(Modal::ConfirmOverwrite(1));
+        a.key(press(KeyCode::F(1)));
+        assert_eq!(a.modal, Some(Modal::ConfirmOverwrite(1)), "a question must be answered first");
+    }
+
+    /// When the last clone ends the summary pops up, and it does not hold up
+    /// a retry the way a question would.
+    #[test]
+    fn a_finished_batch_pops_up_a_summary() {
+        let mut a = app();
+        a.parallel = 4;
+        a.urls.insert_str("https://example.invalid/not/a/real/repo?x");
+        a.start();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while a.busy() && Instant::now() < deadline {
+            if let Ok(ev) = a.rx.recv_timeout(Duration::from_millis(200)) {
+                a.handle(ev);
+            }
+        }
+        assert_eq!(a.modal, Some(Modal::Done));
+        a.key(press(KeyCode::Char('R')));
+        assert_eq!(a.modal, None);
+        assert!(a.busy(), "R should have started the failed clone again");
+        a.cancel_all();
+
+        let mut quiet = app();
+        quiet.settings.popup = false;
+        quiet.parallel = 4;
+        quiet.urls.insert_str("https://example.invalid/not/a/real/repo?x");
+        quiet.start();
+        while quiet.busy() && Instant::now() < deadline {
+            if let Ok(ev) = quiet.rx.recv_timeout(Duration::from_millis(200)) {
+                quiet.handle(ev);
+            }
+        }
+        assert_eq!(quiet.modal, None, "popup turned off in settings");
     }
 
     #[test]
