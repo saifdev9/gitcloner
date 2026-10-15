@@ -1,0 +1,173 @@
+//! gitcloner — a terminal UI for cloning a pile of git repos, public or private.
+
+mod app;
+mod clone;
+mod org;
+mod repo;
+mod ui;
+
+use std::io::{self, Write};
+use std::panic;
+use std::process::ExitCode;
+
+use ratatui::crossterm::event::{DisableBracketedPaste, EnableBracketedPaste};
+use ratatui::crossterm::execute;
+use ratatui::crossterm::tty::IsTty;
+
+const HELP: &str = "\
+gitcloner — clone many git repos, public or private, from one screen
+
+USAGE:
+    gitcloner [URL...] [OPTIONS]
+
+    With no arguments it opens the UI with an empty list. Any URLs given are
+    pre-loaded into it. Nothing is cloned until you press ctrl+s.
+
+URL FORMS:
+    https://github.com/owner/repo[.git]      owner/repo
+    https://github.com/owner/repo/tree/dev   (branch is picked up)
+    https://gitlab.com/group/sub/repo/-/tree/main
+    git@github.com:owner/repo.git            ssh://git@host:port/owner/repo
+    /path/to/local/repo                      file:///path/to/repo
+    https://github.com/myorg                 (lists the org's repos to pick from)
+
+OPTIONS:
+    -d, --dest <DIR>      where to clone into (default: current directory)
+    -b, --branch <NAME>   branch to check out
+    -u, --user <NAME>     username for the token (default: per host)
+    -t, --token <PAT>     personal access token for private repos
+        --shallow         --depth 1 --single-branch
+    -h, --help            this text
+    -V, --version         version
+
+A token can also come from $GITCLONER_PAT, $GITHUB_TOKEN, $GH_TOKEN or
+$GITLAB_TOKEN, which keeps it out of your shell history. Tokens are passed to
+git through GIT_ASKPASS, so they never land in a command line or in .git/config.
+
+KEYS:
+    tab / shift+tab   move between fields       ctrl+s   start cloning
+    ctrl+t            show / hide the token     ctrl+u   clear the field
+    ↑↓ or j/k         pick a repo               c / C    cancel one / all
+    r / R             retry one / all failed    b        back to the form
+    space             tick a repo (org list)    a        tick all / none
+    q / esc           quit
+";
+
+fn main() -> ExitCode {
+    // Re-entrant mode: git calls this binary back to ask for credentials.
+    if std::env::var_os(clone::ENV_ASKPASS).is_some() {
+        return askpass();
+    }
+
+    let prefill = match parse_args() {
+        Ok(Some(prefill)) => prefill,
+        Ok(None) => return ExitCode::SUCCESS,
+        Err(msg) => {
+            eprintln!("gitcloner: {msg}\n\n{HELP}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let git = match clone::git_version() {
+        Ok(v) => v,
+        Err(msg) => {
+            eprintln!("gitcloner: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Without a terminal on both ends the UI would draw into a pipe and then
+    // block forever waiting for keys nobody can send.
+    if !io::stdin().is_tty() || !io::stdout().is_tty() {
+        eprintln!(
+            "gitcloner: this is an interactive UI — run it in a terminal, not through a pipe."
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let mut terminal = match ratatui::try_init() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("gitcloner: cannot start the UI ({e}). It needs a real terminal.");
+            return ExitCode::FAILURE;
+        }
+    };
+    // ratatui's hook restores the screen on panic; also turn paste back off.
+    let hook = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        let _ = execute!(io::stdout(), DisableBracketedPaste);
+        hook(info);
+    }));
+    let _ = execute!(io::stdout(), EnableBracketedPaste);
+
+    let result = app::App::new(prefill, git).run(&mut terminal);
+
+    let _ = execute!(io::stdout(), DisableBracketedPaste);
+    ratatui::restore();
+
+    match result {
+        Ok(code) => ExitCode::from(code),
+        Err(e) => {
+            eprintln!("gitcloner: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `Ok(None)` means "already printed what was asked for, exit cleanly".
+fn parse_args() -> Result<Option<app::Prefill>, String> {
+    let mut prefill = app::Prefill::default();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        let mut value = |name: &str| -> Result<String, String> {
+            i += 1;
+            args.get(i).cloned().ok_or_else(|| format!("{name} needs a value"))
+        };
+        match arg {
+            "-h" | "--help" => {
+                print!("{HELP}");
+                return Ok(None);
+            }
+            "-V" | "--version" => {
+                println!("gitcloner {}", env!("CARGO_PKG_VERSION"));
+                return Ok(None);
+            }
+            "-d" | "--dest" => prefill.dest = Some(value("--dest")?),
+            "-b" | "--branch" => prefill.branch = Some(value("--branch")?),
+            "-u" | "--user" => prefill.user = Some(value("--user")?),
+            "-t" | "--token" | "--pat" => prefill.token = Some(value("--token")?),
+            "--shallow" | "--depth1" => prefill.shallow = true,
+            other if other.starts_with('-') && other.len() > 1 => {
+                return Err(format!("unknown option {other}"));
+            }
+            other => prefill.urls.extend(repo::split_inputs(other)),
+        }
+        i += 1;
+    }
+    Ok(Some(prefill))
+}
+
+/// git runs us as `GIT_ASKPASS <prompt>`; answer with one line on stdout.
+fn askpass() -> ExitCode {
+    let prompt = std::env::args().nth(1).unwrap_or_default().to_ascii_lowercase();
+    let key = if prompt.contains("username") {
+        clone::ENV_USER
+    } else if prompt.contains("password") {
+        clone::ENV_TOKEN
+    } else {
+        // Not a credential prompt (host keys, passphrases): refuse, so git
+        // fails fast instead of being handed the wrong secret.
+        return ExitCode::FAILURE;
+    };
+    match std::env::var(key) {
+        Ok(value) if !value.is_empty() => {
+            let mut out = io::stdout();
+            let _ = writeln!(out, "{value}");
+            let _ = out.flush();
+            ExitCode::SUCCESS
+        }
+        _ => ExitCode::FAILURE,
+    }
+}
