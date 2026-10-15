@@ -312,7 +312,9 @@ const RULES: &[(&[&str], &str)] = &[
     // Before the greedy "not found" rule below.
     (&["remote branch", "unknown revision", "pathspec"], "branch or tag not found on the remote"),
     (
-        &["repository not found", "not found", "404", "does not appear to be a git repository"],
+        // Windows git: "does not appear to be a git repository"; Linux git,
+        // for a local path: "repository '<path>' does not exist".
+        &["repository not found", "not found", "404", "does not appear to be a git repository", "' does not exist"],
         "repository not found — check the URL, or add a PAT if it is private",
     ),
     (
@@ -574,6 +576,7 @@ mod tests {
             ("fatal: could not read Username for 'https://github.com': terminal prompts disabled", "credentials needed"),
             ("remote: Invalid username or password.\nfatal: Authentication failed", "PAT rejected"),
             ("remote: Repository not found.\nfatal: repository not found", "repository not found"),
+            ("fatal: repository '/tmp/x/not-a-repo' does not exist", "repository not found"),
             ("fatal: unable to access 'https://x/': Could not resolve host: x", "network problem"),
             ("fatal: Remote branch nope not found in upstream origin", "branch or tag not found"),
             ("git@github.com: Permission denied (publickey).", "SSH key rejected"),
