@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gitcloner</title>
-<meta name="description" content="A terminal UI for cloning many git repos at once — public or private, several at a time, or picked from a GitHub org.">
+<title>gitcloner: Clone Multiple Git Repos or a Whole GitHub Org</title>
+<meta name="description" content="Free, open source terminal app to clone multiple git repos at once. Paste a list or pick from a GitHub org. Works with private repos. Windows, macOS, Linux.">
 <meta name="theme-color" content="#05070c">
 <link rel="canonical" href="https://saifdev9.github.io/gitcloner/">
 <!-- link previews (LinkedIn, Slack, X, WhatsApp, Discord) -->
@@ -23,7 +23,27 @@
 <meta name="twitter:title" content="gitcloner: clone many git repos at once">
 <meta name="twitter:description" content="A terminal UI for cloning many git repos at once. Public or private, several at a time, or picked from a GitHub org.">
 <meta name="twitter:image" content="https://saifdev9.github.io/gitcloner/og.png">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2305070c'/%3E%3Cpath d='M8 10l6 6-6 6' fill='none' stroke='%235fd7c4' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 23h8' stroke='%235fd7c4' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-48.png" type="image/png" sizes="48x48">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "gitcloner",
+  "description": "A terminal UI for cloning many git repos at once: public or private, several at a time, or picked from a GitHub org.",
+  "url": "https://saifdev9.github.io/gitcloner/",
+  "image": "https://saifdev9.github.io/gitcloner/og.png",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "downloadUrl": "https://github.com/saifdev9/gitcloner/releases/latest",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "saifdev9", "url": "https://github.com/saifdev9" },
+  "sameAs": ["https://github.com/saifdev9/gitcloner"]
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -429,7 +449,7 @@
     <canvas id="sky" aria-hidden="true"></canvas>
     <div class="menu-wrap">
       <h1 class="title">GITCLONER<span class="caret"></span></h1>
-      <p class="tagline">clone many repos at once — public or private</p>
+      <p class="tagline">clone many git repos at once — public or private</p>
       <nav class="menu" aria-label="Main">
         <a href="#install" class="sel">Install</a>
         <a href="#clone">Clone from here</a>
@@ -464,7 +484,7 @@
         <button role="tab" aria-selected="false" data-os="cargo">From source</button>
       </div>
       <div class="code">
-        <pre id="cmd"></pre>
+        <pre id="cmd">curl --proto '=https' --tlsv1.2 -LsSf https://github.com/saifdev9/gitcloner/releases/latest/download/gitcloner-installer.sh | sh</pre>
         <button class="copy" id="copy">copy</button>
       </div>
       <p class="note">Already have it? <code>gitcloner --update</code> fetches the latest release.</p>
