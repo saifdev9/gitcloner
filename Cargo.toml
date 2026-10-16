@@ -1,6 +1,6 @@
 [package]
 name = "gitcloner"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 authors = ["saifdev9"]
 description = "A terminal UI for cloning many git repos at once — public or private, or picked from a GitHub org"
