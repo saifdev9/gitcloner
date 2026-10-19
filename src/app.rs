@@ -1860,8 +1860,13 @@ https://github.com/orgs/MYORG/repositories",
     /// a retry the way a question would.
     #[test]
     fn a_finished_batch_pops_up_a_summary() {
+        // Clone into a throwaway folder. The default is the current directory,
+        // and while git has `./repo` half-made there, `repo::parse("repo")`
+        // reads it as a local path and breaks tests running alongside.
+        let root = crate::clone::testing::temp_root("summary");
         let mut a = app();
         a.parallel = 4;
+        a.dest = Input::new(&root.display().to_string());
         a.urls.insert_str("https://example.invalid/not/a/real/repo?x");
         a.start();
         let deadline = Instant::now() + Duration::from_secs(60);
@@ -1879,6 +1884,7 @@ https://github.com/orgs/MYORG/repositories",
         let mut quiet = app();
         quiet.settings.popup = false;
         quiet.parallel = 4;
+        quiet.dest = Input::new(&root.display().to_string());
         quiet.urls.insert_str("https://example.invalid/not/a/real/repo?x");
         quiet.start();
         while quiet.busy() && Instant::now() < deadline {
@@ -1887,6 +1893,7 @@ https://github.com/orgs/MYORG/repositories",
             }
         }
         assert_eq!(quiet.modal, None, "popup turned off in settings");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

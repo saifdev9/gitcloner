@@ -3,7 +3,7 @@
 A terminal UI ([ratatui](https://ratatui.rs/)) for cloning a pile of git repos in one go —
 public or private, several at a time, with a PAT only when one is needed.
 
-Made by [saifdev9](https://github.com/saifdev9).
+Made by [saifdev9](https://github.com/saifdev9) · Website: [saifdev9.github.io/gitcloner](https://saifdev9.github.io/gitcloner/)
 
 ## Install
 
