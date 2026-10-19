@@ -6,6 +6,15 @@
 <title>gitcloner</title>
 <meta name="description" content="A terminal UI for cloning many git repos at once — public or private, several at a time, or picked from a GitHub org.">
 <meta name="theme-color" content="#05070c">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://saifdev9.github.io/gitcloner/">
+<meta property="og:title" content="gitcloner">
+<meta property="og:description" content="A terminal UI for cloning many git repos at once — public or private, several at a time, or picked from a GitHub org.">
+<meta property="og:image" content="https://saifdev9.github.io/gitcloner/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://saifdev9.github.io/gitcloner/og.png">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2305070c'/%3E%3Cpath d='M8 10l6 6-6 6' fill='none' stroke='%235fd7c4' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 23h8' stroke='%235fd7c4' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -174,7 +183,7 @@
   .lead { margin: 0 0 40px; max-width: 60ch; color: var(--muted); }
 
   .install { display: grid; grid-template-columns: 1fr 1.6fr; gap: 56px; align-items: start; }
-  .tabs { display: flex; gap: 2px; margin-bottom: -1px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: -1px; }
   .tabs button {
     font: inherit;
     font-size: 12px;
@@ -386,6 +395,10 @@
     .top nav { gap: 14px; }
     .hints { padding: 10px 16px 14px; }
     .hints .right { display: none; }
+  }
+  /* the hero menu already lists these links */
+  @media (max-width: 520px) {
+    .top nav { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
     .ticker .track, .title .caret { animation: none; }
@@ -605,7 +618,8 @@
         <section class="group" id="f-auth">
           <h3><span>04</span>Tokens and safety</h3>
           <ul>
-            <li><b>Only when needed</b>Public repos need nothing. Private ones take a PAT from the form, <code>--token</code>, or <code>GITCLONER_PAT</code>, <code>GITHUB_TOKEN</code>, <code>GH_TOKEN</code>, <code>GITLAB_TOKEN</code>.</li>
+            <li><b>Only when needed</b>Public repos need nothing. Private ones take a PAT from the form, or <code>GITCLONER_PAT</code>, <code>GITHUB_TOKEN</code>, <code>GH_TOKEN</code>, <code>GITLAB_TOKEN</code>.</li>
+            <li><b>Only where it belongs</b>Sent over https only, and only to the host being cloned — a submodule or redirect elsewhere gets nothing. <code>GITHUB_TOKEN</code> goes to github.com only, <code>GITLAB_TOKEN</code> to gitlab.com only.</li>
             <li><b>Never on the command line</b>The token reaches git through <code>GIT_ASKPASS</code> — gitcloner answers git's prompt itself — so it is not in <code>ps</code>, Task Manager or your shell history.</li>
             <li><b>Never on disk</b>Not in <code>.git/config</code>, not in the settings file. A token typed into a URL is pulled out before git sees it.</li>
             <li><b>Never in a log</b>Anywhere it could be printed it becomes <code>***</code>. The token field is masked until you press ctrl+t.</li>
@@ -668,7 +682,6 @@
     <table class="flags">
       <tr><td><code>-d, --dest &lt;DIR&gt;</code></td><td>where to clone into — default: the current folder</td></tr>
       <tr><td><code>-b, --branch &lt;NAME&gt;</code></td><td>branch to check out</td></tr>
-      <tr><td><code>-t, --token &lt;PAT&gt;</code></td><td>personal access token, for private repos</td></tr>
       <tr><td><code>-u, --user &lt;NAME&gt;</code></td><td>username for the token — default: right one per host</td></tr>
       <tr><td><code>--shallow</code></td><td><code>--depth 1 --single-branch</code></td></tr>
       <tr><td><code>--update</code></td><td>update gitcloner to the latest release</td></tr>
@@ -1168,7 +1181,8 @@
   });
 
   // --- the five ways out
-  const arg = (s) => (/^[\w./:@~+=-]+$/.test(s) ? s : s.includes("'") ? `"${s}"` : `'${s}'`);
+  // single quotes only: inside double quotes the shell still runs $(…) and `…`
+  const arg = (s) => (/^[\w./:@~+=-]+$/.test(s) ? s : "'" + s.replace(/'/g, "'\\''") + "'");
   function appCommand(jobs, o) {
     const parts = ["gitcloner", ...jobs.map((j) => arg(j.url))];
     if (o.dest) parts.push("-d", arg(o.dest));
@@ -1207,7 +1221,8 @@
       "export -f clone",
       "",
       `xargs -P ${o.n} -n 3 bash -c 'clone "$@"' _ <<'LIST'`,
-      ...jobs.map((j) => `${j.url} ${j.name} ${j.branch || "-"}`),
+      // xargs splits on blanks and reads quotes: escape so each value stays one argument
+      ...jobs.map((j) => [j.url, j.name, j.branch || "-"].map((s) => s.replace(/[^\w./:@~+=%-]/g, "\\$&")).join(" ")),
       "LIST",
       'if [ $? -eq 0 ]; then echo "all done, in $PWD"; else echo "some failed - see the FAIL lines"; exit 1; fi',
     ].join("\n");

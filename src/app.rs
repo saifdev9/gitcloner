@@ -367,7 +367,6 @@ pub struct Prefill {
     pub urls: Vec<String>,
     pub dest: Option<String>,
     pub user: Option<String>,
-    pub token: Option<String>,
     pub branch: Option<String>,
     pub shallow: bool,
 }
@@ -380,6 +379,8 @@ pub struct App {
     pub branch: Input,
     pub user: Input,
     pub token: Input,
+    /// The environment token and its host, while the field still holds it.
+    token_scope: Option<(String, &'static str)>,
     pub reveal: bool,
     pub shallow: bool,
     pub submodules: bool,
@@ -416,12 +417,17 @@ pub struct App {
     rx: Receiver<Event>,
 }
 
-fn env_token() -> Option<String> {
-    ["GITCLONER_PAT", "GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"]
-        .iter()
-        .find_map(|k| std::env::var(k).ok())
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
+/// A token from the environment, and the one host it was issued for when the
+/// variable's name says so (GITCLONER_PAT is for any host).
+fn env_token() -> Option<(String, Option<&'static str>)> {
+    [
+        ("GITCLONER_PAT", None),
+        ("GITHUB_TOKEN", Some("github.com")),
+        ("GH_TOKEN", Some("github.com")),
+        ("GITLAB_TOKEN", Some("gitlab.com")),
+    ]
+    .into_iter()
+    .find_map(|(k, host)| non_empty(&std::env::var(k).ok()?).map(|v| (v, host)))
 }
 
 fn expand_home(path: &str) -> PathBuf {
@@ -442,7 +448,9 @@ impl App {
         let (tx, rx) = mpsc::channel();
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let dest = prefill.dest.unwrap_or_else(|| cwd.display().to_string());
-        let token = prefill.token.or_else(env_token);
+        let env = env_token();
+        let token = env.as_ref().map(|(v, _)| v.clone());
+        let token_scope = env.and_then(|(v, host)| Some((v, host?)));
         let has_urls = !prefill.urls.is_empty();
         Self {
             // URLs on the command line mean "get on with it".
@@ -453,6 +461,7 @@ impl App {
             branch: Input::new(prefill.branch.as_deref().unwrap_or("")),
             user: Input::new(prefill.user.as_deref().unwrap_or("")),
             token: Input::new(token.as_deref().unwrap_or("")),
+            token_scope,
             reveal: false,
             shallow: prefill.shallow,
             submodules: false,
@@ -699,9 +708,19 @@ impl App {
         }
     }
 
+    /// The form's token, unless it came from GITHUB_TOKEN/GITLAB_TOKEN and
+    /// `host` is not the one that variable is for.
+    fn token_for(&self, host: &str) -> Option<String> {
+        let token = non_empty(&self.token.text)?;
+        match &self.token_scope {
+            Some((env, scope)) if *env == token && host != *scope => None,
+            _ => Some(token),
+        }
+    }
+
     /// Ask GitHub whose token this is, off-thread.
     fn fetch_account(&mut self) {
-        let Some(token) = non_empty(&self.token.text) else {
+        let Some(token) = self.token_for("github.com") else {
             self.account = None;
             return;
         };
@@ -1067,7 +1086,7 @@ impl App {
         self.pick = Picker { orgs: title.join(", "), loading: true, rest, ..Picker::default() };
         self.screen = Screen::Pick;
         let (tx, list, look_up) = (self.tx.clone(), self.list_repos, self.look_up);
-        let token = non_empty(&self.token.text);
+        let token = self.token_for("github.com");
         thread::spawn(move || {
             let token = token.as_deref();
             let mut rows: Vec<Row> = Vec::new();
@@ -1128,7 +1147,6 @@ impl App {
         let root = self.dest_root();
         let branch = non_empty(&self.branch.text);
         let user = non_empty(&self.user.text);
-        let token = non_empty(&self.token.text);
 
         let mut jobs: Vec<JobView> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
@@ -1156,7 +1174,11 @@ impl App {
                         n += 1;
                     }
                     let token = match spec.kind {
-                        Kind::Https => spec.token.clone().or_else(|| token.clone()),
+                        // The form's token goes over https only, never in the
+                        // clear over http:// or git://.
+                        Kind::Https => spec.token.clone().or_else(|| {
+                            spec.url.starts_with("https://").then(|| self.token_for(&spec.host)).flatten()
+                        }),
                         _ => None, // SSH and local clones do not use a PAT
                     };
                     jobs.push(JobView::pending(Job {
@@ -1398,6 +1420,30 @@ mod tests {
         let jobs: Vec<&Job> = a.jobs.iter().filter_map(|j| j.job.as_ref()).collect();
         assert_eq!(jobs[0].token, None);
         assert_eq!(jobs[1].token.as_deref(), Some("ghp_token"));
+    }
+
+    #[test]
+    fn the_pat_stays_on_its_host_and_off_plain_http() {
+        let urls = "https://github.com/o/a\nhttps://git.example.com/o/b\nhttp://github.com/o/c";
+        let tokens = |a: &App| -> Vec<Option<String>> {
+            a.jobs.iter().filter_map(|j| j.job.as_ref()).map(|j| j.token.clone()).collect()
+        };
+
+        // typed (or GITCLONER_PAT): any https host, never plain http
+        let mut a = app();
+        a.token = Input::new("ghp_token");
+        a.token_scope = None;
+        a.urls.insert_str(urls);
+        a.start();
+        assert_eq!(tokens(&a), [Some("ghp_token".into()), Some("ghp_token".into()), None]);
+
+        // from GITHUB_TOKEN: github.com only
+        let mut a = app();
+        a.token = Input::new("ghp_token");
+        a.token_scope = Some(("ghp_token".into(), "github.com"));
+        a.urls.insert_str(urls);
+        a.start();
+        assert_eq!(tokens(&a), [Some("ghp_token".into()), None, None]);
     }
 
     /// The real thing: three repos, two workers, through the same scheduler,

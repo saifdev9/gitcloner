@@ -18,6 +18,18 @@ use crate::repo::{self, Kind, RepoSpec};
 pub const ENV_ASKPASS: &str = "GITCLONER_ASKPASS";
 pub const ENV_USER: &str = "GITCLONER_ASKPASS_USER";
 pub const ENV_TOKEN: &str = "GITCLONER_ASKPASS_TOKEN";
+/// `scheme://host[:port]` the token was given for; askpass answers no other.
+pub const ENV_ORIGIN: &str = "GITCLONER_ASKPASS_ORIGIN";
+
+/// `scheme://host[:port]` of a URL, lowercased and without any `user@`.
+/// Works on git's prompts too: `Password for 'https://user@host': `.
+pub fn origin(url: &str) -> String {
+    let url = url.trim().trim_matches('\'');
+    let Some((scheme, rest)) = url.split_once("://") else { return String::new() };
+    let authority = rest.split('/').next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    format!("{scheme}://{host}").to_ascii_lowercase()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OnExisting {
@@ -428,6 +440,7 @@ fn build_command(job: &Job, dest: &Path) -> Command {
             cmd.env(ENV_ASKPASS, "1")
                 .env(ENV_USER, user)
                 .env(ENV_TOKEN, token)
+                .env(ENV_ORIGIN, origin(&job.spec.url))
                 .env("GIT_ASKPASS", exe);
         }
         _ => {
@@ -609,6 +622,17 @@ mod tests {
         assert!(!args.iter().any(|a| a.contains("ghp_secret")), "token leaked into argv");
         let envs: Vec<_> = cmd.get_envs().collect();
         assert!(envs.iter().any(|(k, _)| *k == ENV_TOKEN));
+    }
+
+    #[test]
+    fn origin_matches_git_prompts_and_nothing_else() {
+        let ours = origin("https://github.com/owner/repo.git");
+        assert_eq!(ours, "https://github.com");
+        assert_eq!(origin("'https://x-access-token@GitHub.com'"), ours);
+        assert_eq!(origin("https://alice@git.example.com:8443/a/b"), "https://git.example.com:8443");
+        assert_ne!(origin("'https://x-access-token@git.attacker.example'"), ours);
+        assert_ne!(origin("'http://github.com'"), ours);
+        assert_eq!(origin("not a url"), "");
     }
 
     // ---------------------------------------------------------- end to end

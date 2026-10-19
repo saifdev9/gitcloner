@@ -38,15 +38,16 @@ OPTIONS:
     -d, --dest <DIR>      where to clone into (default: current directory)
     -b, --branch <NAME>   branch to check out
     -u, --user <NAME>     username for the token (default: per host)
-    -t, --token <PAT>     personal access token for private repos
-        --shallow         --depth 1 --single-branch
+        --shallow        --depth 1 --single-branch
         --update          update gitcloner to the latest release
     -h, --help            this text
     -V, --version         version
 
-A token can also come from $GITCLONER_PAT, $GITHUB_TOKEN, $GH_TOKEN or
-$GITLAB_TOKEN, which keeps it out of your shell history. Tokens are passed to
-git through GIT_ASKPASS, so they never land in a command line or in .git/config.
+For private repos, paste a personal access token into the form, or set
+$GITCLONER_PAT (any https host), $GITHUB_TOKEN / $GH_TOKEN (github.com only)
+or $GITLAB_TOKEN (gitlab.com only). Tokens are passed to git through
+GIT_ASKPASS, only for the host being cloned and only over https, so they never
+land in a command line or in .git/config.
 
 KEYS:
     tab / shift+tab   move between fields       ctrl+s   start cloning
@@ -169,7 +170,14 @@ fn parse_args() -> Result<Option<app::Prefill>, String> {
             "-d" | "--dest" => prefill.dest = Some(value("--dest")?),
             "-b" | "--branch" => prefill.branch = Some(value("--branch")?),
             "-u" | "--user" => prefill.user = Some(value("--user")?),
-            "-t" | "--token" | "--pat" => prefill.token = Some(value("--token")?),
+            // gitcloner stays open, so a token here would sit in `ps` output
+            // (and shell history) for the whole session.
+            "-t" | "--token" | "--pat" => {
+                return Err(format!(
+                    "{arg} is gone: a token on the command line is visible to other users in ps. \
+                     Set GITCLONER_PAT instead, or paste it into the token field."
+                ));
+            }
             "--shallow" | "--depth1" => prefill.shallow = true,
             other if other.starts_with('-') && other.len() > 1 => {
                 return Err(format!("unknown option {other}"));
@@ -184,6 +192,12 @@ fn parse_args() -> Result<Option<app::Prefill>, String> {
 /// git runs us as `GIT_ASKPASS <prompt>`; answer with one line on stdout.
 fn askpass() -> ExitCode {
     let prompt = std::env::args().nth(1).unwrap_or_default().to_ascii_lowercase();
+    // Only the host the clone was started against gets an answer: a submodule
+    // or redirect pointing somewhere else must not be handed the token.
+    let asked = prompt.split('\'').nth(1).map(clone::origin).unwrap_or_default();
+    if asked.is_empty() || std::env::var(clone::ENV_ORIGIN).ok().as_deref() != Some(asked.as_str()) {
+        return ExitCode::FAILURE;
+    }
     let key = if prompt.contains("username") {
         clone::ENV_USER
     } else if prompt.contains("password") {

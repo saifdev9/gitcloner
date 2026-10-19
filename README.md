@@ -104,19 +104,21 @@ gitcloner [URL...] [OPTIONS]
 
 gitcloner owner/repo https://github.com/owner/other   # pre-load URLs into the list
 gitcloner "a/b, c/d; e/f"                             # one argument can hold a list
-gitcloner https://github.com/myorg -t ghp_xxx         # pick from an org's repos (see below)
+gitcloner https://github.com/myorg                    # pick from an org's repos (see below)
 gitcloner owner/repo -d ~/src                         # -d, --dest <DIR>    (default: current dir)
 gitcloner owner/repo -b dev                           # -b, --branch <NAME>
 gitcloner owner/repo --shallow                        # --depth 1 --single-branch (alias --depth1)
-gitcloner team/private -t ghp_xxx                     # -t, --token, --pat <PAT>
-gitcloner team/private -u me -t glpat_xxx             # -u, --user <NAME>   (default: per host)
+gitcloner team/private -u me                          # -u, --user <NAME>   (default: per host)
 gitcloner -h                                          # -h, --help
 gitcloner -V                                          # -V, --version
 gitcloner --update                                    # update to the latest release
 ```
 
-Pass the token through an environment variable instead, so it stays out of your shell
-history. These are checked in order: `GITCLONER_PAT`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`.
+For private repos, paste a token into the form's token field or pass it through an
+environment variable. There is no token flag: gitcloner stays open while it works, and a
+token on its command line would be readable in `ps` the whole time. These are checked in
+order: `GITCLONER_PAT` (any https host), `GITHUB_TOKEN` / `GH_TOKEN` (github.com only),
+`GITLAB_TOKEN` (gitlab.com only).
 
 ```powershell
 # PowerShell
@@ -270,8 +272,10 @@ otherwise.
 ## Tokens
 
 Private repos need a PAT (GitHub: *Settings → Developer settings → tokens*, `repo`
-scope). It can come from the token field, `--token`, or
-`$GITCLONER_PAT` / `$GITHUB_TOKEN` / `$GH_TOKEN` / `$GITLAB_TOKEN`.
+scope). It can come from the token field, or `$GITCLONER_PAT` / `$GITHUB_TOKEN` /
+`$GH_TOKEN` / `$GITLAB_TOKEN`. It is only sent over https, only to the host being
+cloned (a submodule or redirect to another host gets nothing), and a token from
+`$GITHUB_TOKEN` / `$GH_TOKEN` or `$GITLAB_TOKEN` only to github.com or gitlab.com.
 
 The token is handed to git through `GIT_ASKPASS` — this binary answers git's
 credential prompt from an environment variable — so it never appears in:
